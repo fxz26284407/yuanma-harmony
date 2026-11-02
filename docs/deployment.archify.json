@@ -1,0 +1,304 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "远码 · 部署架构",
+    "locale": "zh-CN",
+    "output": ".archify/architecture-yuanma-deployment-20261102-105634/deployment.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/fxz26284407/yuanma-gateway.git",
+      "revision": "b04a78202522c7173ee5d16678d5bd6810e5827f"
+    }
+  },
+  "components": [
+    {
+      "id": "mobile",
+      "type": "frontend",
+      "label": "远码 · 鸿蒙客户端",
+      "sublabel": "扫码配对 / HUKS 签名",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        185,
+        74
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 9,
+          "end_line": 20
+        }
+      ]
+    },
+    {
+      "id": "ingress",
+      "type": "cloud",
+      "label": "Nginx · 可选域名入口",
+      "sublabel": "HTTP/WS · Upgrade",
+      "pos": [
+        365,
+        40
+      ],
+      "size": [
+        230,
+        74
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 97,
+          "end_line": 106
+        }
+      ]
+    },
+    {
+      "id": "relay",
+      "type": "backend",
+      "label": "Docker · 密文中继",
+      "sublabel": "宿主 19088 → 容器 8080",
+      "pos": [
+        750,
+        40
+      ],
+      "size": [
+        230,
+        74
+      ],
+      "sources": [
+        {
+          "path": "deploy/relay/compose.yaml",
+          "line": 1,
+          "end_line": 15
+        },
+        {
+          "path": "gateway/relay.ts",
+          "line": 25,
+          "end_line": 44
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "security",
+      "label": "Mac · Node.js 网关",
+      "sublabel": "设备鉴权 / 项目授权 / 队列",
+      "pos": [
+        750,
+        330
+      ],
+      "size": [
+        260,
+        74
+      ],
+      "sources": [
+        {
+          "path": "gateway/server.ts",
+          "line": 71,
+          "end_line": 97
+        },
+        {
+          "path": "gateway/server.ts",
+          "line": 360,
+          "end_line": 365
+        },
+        {
+          "path": "gateway/secure-ws.ts",
+          "line": 20,
+          "end_line": 39
+        }
+      ]
+    },
+    {
+      "id": "backend",
+      "type": "backend",
+      "label": "Codex app-server",
+      "sublabel": "共享会话 / 工具与审批",
+      "pos": [
+        365,
+        330
+      ],
+      "size": [
+        230,
+        74
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 20,
+          "end_line": 33
+        },
+        {
+          "path": "gateway/codex.ts",
+          "line": 31,
+          "end_line": 51
+        }
+      ]
+    },
+    {
+      "id": "desktop",
+      "type": "frontend",
+      "label": "Codex Desktop",
+      "sublabel": "连接同一个共享后端",
+      "pos": [
+        40,
+        330
+      ],
+      "size": [
+        185,
+        74
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 20,
+          "end_line": 33
+        }
+      ]
+    },
+    {
+      "id": "ledger",
+      "type": "database",
+      "label": "Mac · SQLite 账本",
+      "sublabel": "消息 ID / 回执 / 设备授权",
+      "pos": [
+        750,
+        570
+      ],
+      "size": [
+        260,
+        74
+      ],
+      "sources": [
+        {
+          "path": "gateway/server.ts",
+          "line": 79,
+          "end_line": 92
+        },
+        {
+          "path": "gateway/ledger.ts",
+          "line": 16,
+          "end_line": 45
+        }
+      ]
+    },
+    {
+      "id": "workspace",
+      "type": "external",
+      "label": "Mac · 工作项目",
+      "sublabel": "按会话权限和审批执行",
+      "pos": [
+        365,
+        570
+      ],
+      "size": [
+        230,
+        74
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 14,
+          "end_line": 20
+        },
+        {
+          "path": "README.md",
+          "line": 110,
+          "end_line": 113
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "公网服务器 · yuanma-gateway",
+      "wraps": [
+        "ingress",
+        "relay"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "region",
+      "label": "工作 Mac · yuanma-gateway + Codex",
+      "wraps": [
+        "gateway",
+        "backend",
+        "desktop",
+        "ledger",
+        "workspace"
+      ],
+      "pad": 22
+    }
+  ],
+  "connections": [
+    {
+      "from": "mobile",
+      "to": "ingress",
+      "label": "主动 WS 连接",
+      "variant": "security"
+    },
+    {
+      "from": "ingress",
+      "to": "relay",
+      "label": "反代 HTTP/WS"
+    },
+    {
+      "from": "gateway",
+      "to": "ingress",
+      "label": "主动 WS 连接",
+      "variant": "security"
+    },
+    {
+      "from": "gateway",
+      "to": "backend",
+      "label": "本地 Unix socket",
+      "variant": "emphasis"
+    },
+    {
+      "from": "desktop",
+      "to": "backend",
+      "label": "共享后端连接",
+      "variant": "emphasis"
+    },
+    {
+      "from": "gateway",
+      "to": "ledger",
+      "label": "持久化 / 去重"
+    },
+    {
+      "from": "backend",
+      "to": "workspace",
+      "label": "执行工具"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "两端同一入口",
+      "items": [
+        "Mac 与手机使用同一 ws://relay.example.com",
+        "不使用域名时，两端直接连接服务器 :19088；省略 Nginx"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "业务内容端到端加密",
+      "items": [
+        "扫码固定 Mac 公钥，Noise 通道在手机与 Mac 之间建立",
+        "中继可见路由标识和连接信息，无法解密会话与图片"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "服务与数据边界",
+      "items": [
+        "服务器只部署密文中继，不安装 Codex、不保存 Mac 私钥",
+        "任务在 Mac 执行；换网后重新鉴权并按原消息 ID 核对回执"
+      ]
+    }
+  ]
+}

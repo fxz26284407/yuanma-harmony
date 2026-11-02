@@ -9,6 +9,16 @@
 - [鸿蒙原生客户端](https://github.com/fxz26284407/yuanma-harmony)（本仓库）
 - [Mac 网关与公网密文中继](https://github.com/fxz26284407/yuanma-gateway)
 
+## 部署架构
+
+![远码部署架构](docs/assets/deployment.svg)
+
+手机和 Mac 主动连接同一个公网 WS 入口；业务内容通过 Noise 在两端加密，中继只负责转发。Codex Desktop 与 Mac 网关连接同一个 app-server，任务、文件操作和审批发生在 Mac。SQLite 消息账本与设备授权也保存在 Mac。
+
+公网服务器只安装 Docker 中继，默认端口映射为 `19088:8080`。有域名时可增加支持 WebSocket Upgrade 的 Nginx；直接使用 `ws://服务器地址:19088` 时省略 Nginx。
+
+[架构图源文件](docs/deployment.archify.json)
+
 ## 功能
 
 - 原生玻璃风格菜单和面板，深色、亮色外观及紧凑排版。
@@ -51,6 +61,8 @@ Noise-C 会按固定提交下载到 `.local/noise-c`，由 NAPI 模块链接；�
 ```sh
 npm run pairing:qr -- --relay-url ws://your-relay.example.com
 ```
+
+这里独立的 `--` 是 npm 的参数分隔符，用于把后面的 `--relay-url` 传给脚本，并非重复。若直接运行脚本，写成 `node scripts/pairing-qr.mjs --relay-url ws://relay.example.com`，不加中间的分隔符。
 
 以上命令在网关仓库执行。手机扫码后按 Mac 上的授权流程连接。中继域名和端口不写死在手机源码中，地址更新可在“设置 → 连接 → Mac”重新扫码；同一 Mac 沿用原设备身份及项目授权。
 
