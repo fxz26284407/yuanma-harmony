@@ -31,6 +31,7 @@ export struct WorkspaceView {
   @State private showRequest: boolean = false;
   @State private activeRequestId: string = '';
   @State private scanning: boolean = false;
+  @State private submitting: boolean = false;
   @State private threadSearch: string = '';
   @State private sidebarOpen: boolean = false;
   @State private wideScreen: boolean = false;
@@ -245,6 +246,9 @@ export struct WorkspaceView {
         .onDisAppear(() => { this.chatHeight = 0; this.contentHeight = 0; })
       if (!this.followLatest && this.client.messages.length > 0) { Button('回到最新').id('latest-message').height(44).fontSize(13).fontColor(AppTheme.text).backgroundColor(AppTheme.surface).onClick(() => { this.followLatest = true; this.scrollLatest(); }) }
       Column({ space: 4 }) {
+        if (this.submitting) { Text('正在提交…').id('submission-feedback').fontSize(11).fontColor(AppTheme.secondary).padding({ left: 6 }).width('100%') }
+        else if (this.client.lastMessageState === 'unknown') { Text('发送结果待确认 · 正在核对，请勿重复发送').id('submission-feedback').fontSize(11).fontColor(AppTheme.secondary).padding({ left: 6 }).width('100%') }
+        else if (this.client.queueMessages.length > 0) { Text('已提交 · ' + this.client.queueMessages.length + ' 条等待处理，点此查看').id('submission-feedback').fontSize(11).fontColor(AppTheme.secondary).padding({ left: 6 }).width('100%').onClick(() => { this.followLatest = true; this.scrollLatest(); }) }
         if (this.client.attachments.length > 0) {
           Scroll() { Row({ space: 8 }) { ForEach(this.client.attachments, (item: DraftImage) => {
             Stack({ alignContent: Alignment.BottomStart }) {
@@ -278,7 +282,7 @@ export struct WorkspaceView {
             Button() { Stack() { Circle().width(32).height(32).fill(AppTheme.text); SymbolGlyph($r('sys.symbol.square_fill')).fontSize(12).fontColor([AppTheme.contentSurface]) } }.width(44).height(44).padding(0).backgroundColor(Color.Transparent).id('stop-turn').accessibilityText('停止当前任务').enabled(this.client.canExecute && !this.client.busy).onClick(() => { this.client.stop().catch((e: Error) => { this.errorText = this.safeError(e); }); })
           } else {
             Button() { Stack() { Circle().width(32).height(32).fill(AppTheme.text); SymbolGlyph($r('sys.symbol.arrow_up')).fontSize(16).fontColor([AppTheme.contentSurface]) } }.width(44).height(44).padding(0).backgroundColor(Color.Transparent).id('send-message').accessibilityText('发送任务').enabled(this.client.canExecute && !this.client.busy && this.client.hasDraftContent)
-              .onClick(() => { this.errorText = ''; this.client.send(this.client.selectedProjectId, this.client.selectedThreadId, this.client.draft).catch((e: Error) => { this.errorText = this.safeError(e); }); })
+              .onClick(() => { if (this.submitting) { return; } this.errorText = ''; this.submitting = true; this.client.send(this.client.selectedProjectId, this.client.selectedThreadId, this.client.draft).then(() => { this.followLatest = true; this.scrollLatest(); }).catch((e: Error) => { this.errorText = this.safeError(e) || '连接正在恢复，草稿或发送结果已保留，正在核对'; }).finally(() => { this.submitting = false; }); })
           }
           }.height(44)
         }.width('100%')
