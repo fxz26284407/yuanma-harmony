@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.0.0",
+  "name": "codex-mobile-harmony",
+  "version": "0.1.0",
+  "description": "Codex Mobile native HarmonyOS client",
+  "dependencies": {},
+  "devDependencies": {},
+  "dynamicDependencies": {},
+  "license": "Apache-2.0",
+  "author": "fxz26284407"
+}

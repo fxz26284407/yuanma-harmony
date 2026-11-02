@@ -1,0 +1,148 @@
+{
+  "color": [
+    {
+      "name": "ui_background",
+      "value": "#2D333F"
+    },
+    {
+      "name": "ui_surface",
+      "value": "#353D4B"
+    },
+    {
+      "name": "ui_glass",
+      "value": "#EE394352"
+    },
+    {
+      "name": "ui_border",
+      "value": "#53627389"
+    },
+    {
+      "name": "ui_text",
+      "value": "#D6DCE6"
+    },
+    {
+      "name": "ui_secondary",
+      "value": "#A5B0C1"
+    },
+    {
+      "name": "ui_muted",
+      "value": "#8894A7"
+    },
+    {
+      "name": "ui_suggestionInk",
+      "value": "#687487"
+    },
+    {
+      "name": "ui_selected",
+      "value": "#40516B"
+    },
+    {
+      "name": "ui_accent",
+      "value": "#86CDDD"
+    },
+    {
+      "name": "ui_error",
+      "value": "#EDACB3"
+    },
+    {
+      "name": "ui_contentSurface",
+      "value": "#242B37"
+    },
+    {
+      "name": "ui_codeSurface",
+      "value": "#252C38"
+    },
+    {
+      "name": "ui_codeInline",
+      "value": "#424B59"
+    },
+    {
+      "name": "ui_bubble",
+      "value": "#353C48"
+    },
+    {
+      "name": "ui_inputSurface",
+      "value": "#373F4D"
+    },
+    {
+      "name": "ui_inputGlass",
+      "value": "#E6373F4D"
+    },
+    {
+      "name": "ui_subtle",
+      "value": "#18FFFFFF"
+    },
+    {
+      "name": "ui_chip",
+      "value": "#224C5667"
+    },
+    {
+      "name": "ui_rail",
+      "value": "#535F73"
+    },
+    {
+      "name": "ui_thumb",
+      "value": "#F2F5FA"
+    },
+    {
+      "name": "ui_primary",
+      "value": "#D7DFEB"
+    },
+    {
+      "name": "ui_primaryText",
+      "value": "#253041"
+    },
+    {
+      "name": "ui_warning",
+      "value": "#ED995B"
+    },
+    {
+      "name": "ui_warningSurface",
+      "value": "#D7AA7F"
+    },
+    {
+      "name": "ui_warningText",
+      "value": "#EDBB91"
+    },
+    {
+      "name": "ui_link",
+      "value": "#BDD0EB"
+    },
+    {
+      "name": "ui_success",
+      "value": "#72D398"
+    },
+    {
+      "name": "ui_glassRim",
+      "value": "#70FFFFFF"
+    },
+    {
+      "name": "ui_drawerTint",
+      "value": "#24B8CCE6"
+    },
+    {
+      "name": "ui_scrim",
+      "value": "#18000000"
+    },
+    {
+      "name": "ui_errorSurface",
+      "value": "#412B33"
+    },
+    {
+      "name": "ui_popupFallback",
+      "value": "#303C4758"
+    },
+    {
+      "name": "ui_executionInk",
+      "value": "#929CAC"
+    },
+    {
+      "name": "ui_inkHighlight",
+      "value": "#F5FAFF"
+    },
+    {
+      "name": "ui_shadow",
+      "value": "#7003070D"
+    }
+  ]
+}

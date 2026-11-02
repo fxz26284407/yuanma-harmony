@@ -1,0 +1,16 @@
+# Yuanma Harmony NOTICE
+
+Copyright 2026 fxz26284407
+Original author: https://github.com/fxz26284407
+Original project: https://github.com/fxz26284407/yuanma-harmony
+Companion gateway: https://github.com/fxz26284407/yuanma-gateway
+
+Original Yuanma code is licensed under Apache-2.0. Attribution is provided for preservation under section 4; this notice adds no additional license restrictions.
+
+## Third-party components
+
+- Noise-C, pinned revision cfe25410979a87391bb9ac8d4d4bef64e9f268c6, https://github.com/rweather/noise-c : project-level MIT license; component-specific notices remain in its source checkout. Sources are fetched by the build script and are not vendored in this repository.
+- fluid-markdown 1.0.11, https://github.com/antgroup/FluidMarkdown : Apache-2.0. Installed by OHPM; its included native components, fonts and respective notices remain unchanged.
+- The included font licenses in fluid-markdown include the dsrom license and Knuth license. No font files are renamed or modified by this project.
+
+Dependency notices are not replaced by the license for original Yuanma code. Build outputs must retain the applicable upstream notices.

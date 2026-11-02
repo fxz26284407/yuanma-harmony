@@ -1,0 +1,20 @@
+{
+  "name": "yuanma-harmony",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "远码 HarmonyOS 原生客户端",
+  "license": "Apache-2.0",
+  "author": "fxz26284407",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fxz26284407/yuanma-harmony.git"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build:harmony": "node scripts/build-harmony.mjs",
+    "prepare:crypto": "node scripts/prepare-crypto.mjs"
+  }
+}

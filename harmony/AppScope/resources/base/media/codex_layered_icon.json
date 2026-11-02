@@ -1,0 +1,6 @@
+{
+  "layered-image": {
+    "background": "$media:codex_background",
+    "foreground": "$media:codex_user_icon"
+  }
+}

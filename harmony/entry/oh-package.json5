@@ -1,0 +1,12 @@
+{
+  "name": "entry",
+  "version": "0.1.0",
+  "description": "Native client",
+  "main": "",
+  "author": "fxz26284407",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "libcodexnoise.so": "file:./src/main/cpp/types/libcodexnoise",
+    "fluid-markdown": "1.0.11"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "libcodexnoise.so",
+  "version": "0.1.0",
+  "types": "./Index.d.ts",
+  "description": "Native fixed-profile Noise client",
+  "license": "Apache-2.0",
+  "author": "fxz26284407"
+}
