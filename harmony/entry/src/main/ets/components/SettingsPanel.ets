@@ -71,6 +71,18 @@ export struct SettingsPanel {
           }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
         }.width('100%')
         Column({ space: 6 }) {
+          Text('Skills 与插件').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 12, bottom: 6 })
+          Column() {
+            Button() { Row({ space: 12 }) {
+              SymbolGlyph($r('sys.symbol.rectangle_on_rectangle')).fontSize(20).fontColor([AppTheme.secondary])
+              Text(this.client.extensionSyncing ? '正在同步…' : '同步 Skills 与插件').fontSize(14).fontColor(AppTheme.text).layoutWeight(1)
+              if (this.client.extensionSyncing) { LoadingProgress().width(18).height(18).color(AppTheme.accent) } else { Text('同步').fontSize(12).fontColor(AppTheme.accent) }
+            }.padding({ left: 16, right: 16 }).height(54).width('100%') }.id('sync-extensions').type(ButtonType.Normal).padding(0).height(54).width('100%').backgroundColor(Color.Transparent).enabled(this.client.authenticated && !this.client.busy && !this.client.extensionSyncing && this.client.projects.length > 0)
+              .onClick(() => { this.client.syncExtensions().catch((error: Error) => { this.infoTitle = '同步 Skills 与插件'; this.info = this.client.userFacingError(error) || '连接正在恢复，请恢复连接后重新同步'; }); })
+            Text(this.client.extensionSyncStatus || (this.client.authenticated ? (this.client.projects.length > 0 ? '读取当前 Mac 已安装并启用的扩展，供输入框 @ 使用。项目专属 Skill 随项目切换。' : '请先在 Mac 授权一个项目，再同步该电脑的扩展清单。') : '连接 Mac 后可同步当前电脑的扩展清单。')).id('extension-sync-status').fontSize(11).lineHeight(18).fontColor(AppTheme.secondary).width('100%').padding({ left: 16, right: 16, bottom: 12 })
+          }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
+        }.width('100%')
+        Column({ space: 6 }) {
           Text('显示').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 12, bottom: 6 })
           Column() {
             Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.moon')).fontSize(20).fontColor([AppTheme.secondary]); Text('外观').fontSize(14).fontColor(AppTheme.text).layoutWeight(1); Row({ space: 4 }) {

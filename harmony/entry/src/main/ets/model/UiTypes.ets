@@ -68,8 +68,8 @@ export interface BackendStatus { backendReady: boolean; }
 
 export interface DisplaySettings { reduceTransparency: boolean; reduceMotion: boolean; appearance?: string; }
 
-export interface ExtensionItem { id: string; kind: string; name: string; description: string; }
-export interface ExtensionPage { items: ExtensionItem[]; total: number; }
+export interface ExtensionItem { id: string; kind: string; name: string; description: string; iconId?: string; }
+export interface ExtensionPage { items: ExtensionItem[]; total: number; skillCount?: number; pluginCount?: number; browserCount?: number; refreshed?: boolean; }
 export interface PermissionState { mode: string; mobileControl: boolean; approvalPolicy?: string; reviewer?: string; sandbox?: string; }
 export interface PermissionBody { projectId: string; mode: string; confirmFullAccess: boolean; }
 export interface ImageReference { id: string; threadId: string; turnId: string; itemId: string; index: number; label: string; }

@@ -79,7 +79,7 @@ export class MobileSession extends UiState {
     await this.identity.initialize(context);
     this.nextSuggestionEnabled = (await this.identity.get('nextSuggestionEnabled')) !== 'false';
     this.attachmentRoot = context.filesDir + '/codex-attachments'; if (!fileIo.accessSync(this.attachmentRoot)) { fileIo.mkdirSync(this.attachmentRoot); }
-    try { this.imageRoot = context.cacheDir + '/codex-media'; if (!fileIo.accessSync(this.imageRoot)) { fileIo.mkdirSync(this.imageRoot); } fileIo.listFileSync(this.imageRoot).forEach((name: string) => { if (/^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.test(name)) { fileIo.unlinkSync(this.imageRoot + '/' + name); } }); } catch (_) { this.imageRoot = ''; }
+    try { this.imageRoot = context.cacheDir + '/codex-media'; if (!fileIo.accessSync(this.imageRoot)) { fileIo.mkdirSync(this.imageRoot); } fileIo.listFileSync(this.imageRoot).forEach((name: string) => { if (/^(ext-)?[a-f0-9]{64}\.(png|jpg|gif|webp|svg)$/.test(name)) { fileIo.unlinkSync(this.imageRoot + '/' + name); } }); } catch (_) { this.imageRoot = ''; }
     const display: string = await this.identity.get('displaySettings'); if (display) { const value = JSON.parse(display) as DisplaySettings; this.reduceTransparency = value.reduceTransparency === true; this.reduceMotion = value.reduceMotion === true; this.appearance = value.appearance === 'light' ? 'light' : 'dark'; }
     this.applyAppearance();
     const pending: string = await this.identity.get('pendingSend');
@@ -89,7 +89,7 @@ export class MobileSession extends UiState {
     this.initialized = true; this.watchNetwork();
   }
   private async connect(mac: KnownMac, generation: number = this.generation): Promise<void> {
-    this.checkGeneration(generation); this.token = ''; this.authenticated = false; this.status = '正在建立安全会话';
+    this.checkGeneration(generation); this.clearConnection(); this.status = '正在建立安全会话';
     const key = await this.identity.transport();
     try { this.checkGeneration(generation); this.transportPublic = key.publicKey;
       this.signingPublic = encode(await this.signer.publicKey()); this.checkGeneration(generation);
@@ -162,7 +162,7 @@ export class MobileSession extends UiState {
     this.recovering = false; this.recoveryIssue = ''; this.retryDelay = 500; clearTimeout(this.retryTimer); this.connectionVersion++;
   }
   private checkGeneration(generation: number): void { if (generation !== this.generation) { const error = new Error('已取消旧连接操作'); error.name = 'LinkError'; throw error; } }
-  private clearConnection(): void { this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; }
+  private clearConnection(): void { this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
   private connectionLost(reason: string = 'transport'): void {
     console.info('CM_CONNECTION reset reason=' + reason);
     this.generation++; this.rpc.close(); this.clearConnection();
@@ -367,9 +367,27 @@ export class MobileSession extends UiState {
   }
   async loadExtensions(query: string): Promise<void> {
     if (!this.authenticated || !this.selectedProjectId) { throw new Error('请先连接 Mac 并选择项目'); }
-    const generation: number = ++this.extensionGeneration; const project: string = this.selectedProjectId; const thread: string = this.selectedThreadId; this.extensionLoading = true;
-    try { const result = await this.rpc.request<ExtensionPage>('GET', '/v1/extensions?projectId=' + encodeURIComponent(this.selectedProjectId) + (this.selectedThreadId ? '&threadId=' + encodeURIComponent(this.selectedThreadId) : '') + '&query=' + encodeURIComponent(query), undefined, this.authorization()); if (generation === this.extensionGeneration && project === this.selectedProjectId && thread === this.selectedThreadId) { this.extensionItems = result.items; this.extensionTotal = result.total; } }
+    const generation: number = ++this.extensionGeneration; const project: string = this.selectedProjectId; const thread: string = this.selectedThreadId; const mac: string = this.fingerprint; this.extensionLoading = true;
+    try { const result = await this.rpc.request<ExtensionPage>('GET', '/v1/extensions?projectId=' + encodeURIComponent(this.selectedProjectId) + (this.selectedThreadId ? '&threadId=' + encodeURIComponent(this.selectedThreadId) : '') + '&query=' + encodeURIComponent(query), undefined, this.authorization()); if (generation === this.extensionGeneration && mac === this.fingerprint && this.authenticated && project === this.selectedProjectId && thread === this.selectedThreadId) { this.extensionItems = result.items; this.extensionTotal = result.total; } }
     finally { if (generation === this.extensionGeneration) { this.extensionLoading = false; } }
+  }
+  async syncExtensions(): Promise<void> {
+    if (!this.authenticated || this.busy || this.extensionSyncing) { throw new Error('请先连接 Mac，并等待当前操作完成'); }
+    const selected: string = this.selectedProjectId; const thread: string = this.selectedThreadId;
+    const project = this.projects.find((p: ProjectItem) => p.id === selected) || this.projects[0];
+    if (!project) { throw new Error('当前 Mac 没有已授权项目，暂时无法同步扩展'); }
+    const generation: number = ++this.extensionGeneration; const mac: string = this.fingerprint;
+    this.extensionSyncing = true; this.extensionLoading = true; this.extensionSyncStatus = '';
+    try {
+      const scope: string = project.id === selected && thread ? '&threadId=' + encodeURIComponent(thread) : '';
+      const result = await this.rpc.request<ExtensionPage>('GET', '/v1/extensions?projectId=' + encodeURIComponent(project.id) + scope + '&refresh=true', undefined, this.authorization());
+      if (generation !== this.extensionGeneration || mac !== this.fingerprint || !this.authenticated || selected !== this.selectedProjectId || thread !== this.selectedThreadId) { return; }
+      if (!result.refreshed || result.skillCount === undefined || result.pluginCount === undefined) { throw new Error('当前 Mac 网关尚不支持手动同步，请先更新网关'); }
+      this.extensionItems = result.items; this.extensionTotal = result.total;
+      this.extensionIconVersion++;
+      this.references = this.references.map((ref: ExtensionItem) => result.items.find((item: ExtensionItem) => item.id === ref.id) || ref);
+      this.extensionSyncStatus = '已同步：' + result.skillCount + ' 个 Skill、' + result.pluginCount + ' 个插件' + (result.browserCount ? '、' + result.browserCount + ' 个浏览器入口' : '');
+    } finally { this.extensionSyncing = false; if (generation === this.extensionGeneration) { this.extensionLoading = false; } }
   }
   async toggleReference(item: ExtensionItem): Promise<void> {
     if (this.busy) { throw new Error('请等待当前提交完成'); }
@@ -441,23 +459,33 @@ export class MobileSession extends UiState {
     }
   }
   private async restoreReferences(): Promise<void> {
-    this.extensionGeneration++; this.extensionItems = []; this.extensionLoading = false; const value: string = await this.identity.get('refs.' + this.draftKey()); this.references = value ? JSON.parse(value) as ExtensionItem[] : [];
+    this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; const value: string = await this.identity.get('refs.' + this.draftKey()); this.references = value ? JSON.parse(value) as ExtensionItem[] : [];
     const images: string = await this.identity.get('images.' + this.draftKey()); this.attachments = images ? JSON.parse(images) as DraftImage[] : [];
   }
   loadImage(ref: ImageReference): Promise<string> {
-    const project: string = this.selectedProjectId; const key: string = hex(native.sha256(utf8(this.fingerprint + ':' + project + ':' + ref.id)));
+    const project: string = this.selectedProjectId;
+    return this.loadCachedImage(ref.id, project, '/v1/threads/' + ref.threadId + '/media?projectId=' + encodeURIComponent(project) + '&turnId=' + encodeURIComponent(ref.turnId) + '&itemId=' + encodeURIComponent(ref.itemId) + '&index=' + ref.index);
+  }
+  loadExtensionIcon(item: ExtensionItem): Promise<string> {
+    if (!item.iconId || !this.selectedProjectId) { return Promise.reject(new Error('扩展没有可用图标')); }
+    const project: string = this.selectedProjectId;
+    return this.loadCachedImage('ext:' + item.iconId + ':' + this.appearance + ':' + this.extensionIconVersion, project, '/v1/extensions/' + encodeURIComponent(item.id) + '/icon?projectId=' + encodeURIComponent(project) + (this.selectedThreadId ? '&threadId=' + encodeURIComponent(this.selectedThreadId) : '') + '&theme=' + this.appearance, true);
+  }
+  private loadCachedImage(id: string, project: string, endpoint: string, icon: boolean = false): Promise<string> {
+    const mac: string = this.fingerprint; const key: string = (icon ? 'ext-' : '') + hex(native.sha256(utf8(mac + ':' + project + ':' + id)));
     const cached: string | undefined = this.imageCache.get(key); if (cached) { this.imageCache.delete(key); this.imageCache.set(key, cached); return Promise.resolve(fileUri.getUriFromPath(cached)); }
     const pending: Promise<string> | undefined = this.imageTasks.get(key); if (pending) { return pending; }
     const result: Promise<string> = this.imageWrites.then(async (): Promise<string> => {
-      if (!this.imageRoot || !this.authenticated || project !== this.selectedProjectId) { throw new Error('图片缓存或连接不可用，请重新打开图片'); }
+      if (!this.imageRoot || !this.authenticated || project !== this.selectedProjectId || mac !== this.fingerprint) { throw new Error('图片缓存或连接不可用，请重新打开图片'); }
       let offset: number = 0; let version: string = ''; let file: fileIo.File | undefined; let path: string = '';
       try { while (true) {
-        if (project !== this.selectedProjectId) { throw new Error('项目已切换'); }
-        const chunk = await this.rpc.request<ImageChunk>('GET', '/v1/threads/' + ref.threadId + '/media?projectId=' + encodeURIComponent(project) + '&turnId=' + encodeURIComponent(ref.turnId) + '&itemId=' + encodeURIComponent(ref.itemId) + '&index=' + ref.index + '&offset=' + offset + (version ? '&version=' + version : ''), undefined, this.authorization());
-        if (chunk.totalBytes > 8388608 || (version && version !== chunk.version) || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(chunk.mime)) { throw new Error('图片过大、格式不受支持或内容已变化'); }
-        if (!file) { const ext: string = chunk.mime === 'image/jpeg' ? 'jpg' : chunk.mime.slice(6); path = this.imageRoot + '/' + key + '.' + ext; file = fileIo.openSync(path, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC); }
+        if (project !== this.selectedProjectId || mac !== this.fingerprint) { throw new Error('项目或 Mac 已切换'); }
+        const chunk = await this.rpc.request<ImageChunk>('GET', endpoint + '&offset=' + offset + (version ? '&version=' + version : ''), undefined, this.authorization());
+        if (project !== this.selectedProjectId || mac !== this.fingerprint) { throw new Error('项目或 Mac 已切换'); }
+        if (chunk.totalBytes > (icon ? 2097152 : 8388608) || (version && version !== chunk.version) || (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(chunk.mime) && !(icon && chunk.mime === 'image/svg+xml'))) { throw new Error('图片过大、格式不受支持或内容已变化'); }
+        if (!file) { const ext: string = chunk.mime === 'image/jpeg' ? 'jpg' : chunk.mime === 'image/svg+xml' ? 'svg' : chunk.mime.slice(6); path = this.imageRoot + '/' + key + '.' + ext; file = fileIo.openSync(path, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC); }
         const bytes: ArrayBuffer = decode(chunk.data); let written: number = 0; while (written < bytes.byteLength) { const count: number = fileIo.writeSync(file.fd, bytes.slice(written)); if (count <= 0) { throw new Error('图片缓存写入失败'); } written += count; }
-        version = chunk.version; offset += bytes.byteLength; if (this.selectedImageId === ref.id) { this.imageProgress = Math.round(offset * 100 / Math.max(1, chunk.totalBytes)); }
+        version = chunk.version; offset += bytes.byteLength; if (this.selectedImageId === id) { this.imageProgress = Math.round(offset * 100 / Math.max(1, chunk.totalBytes)); }
         if (chunk.nextOffset === undefined || chunk.nextOffset === null) { if (offset !== chunk.totalBytes) { throw new Error('图片传输不完整'); } break; }
         if (chunk.nextOffset !== offset || bytes.byteLength === 0) { throw new Error('图片分段位置无效'); }
       }
@@ -678,6 +706,6 @@ export class MobileSession extends UiState {
     } finally { this.busy = false; }
   }
   pauseConnection(): void { this.reconnectEnabled = false; this.disconnect(); }
-  disconnect(): void { clearTimeout(this.retryTimer); this.recovering = false; ++this.generation; this.rpc.close(); this.token = ''; this.authenticated = false; this.encrypted = false; this.projects = []; this.approvals = []; this.queueMessages = []; this.status = '未连接'; this.detail = '草稿不会自动提交，重新连接后恢复身份'; }
+  disconnect(): void { clearTimeout(this.retryTimer); this.recovering = false; ++this.generation; this.rpc.close(); this.clearConnection(); this.projects = []; this.queueMessages = []; this.status = '未连接'; this.detail = '草稿不会自动提交，重新连接后恢复身份'; }
 }
 export const mobileSession: MobileSession = new MobileSession();

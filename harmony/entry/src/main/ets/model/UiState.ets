@@ -40,6 +40,9 @@ export abstract class UiState {
   extensionItems: ExtensionItem[] = [];
   extensionTotal: number = 0;
   extensionLoading: boolean = false;
+  extensionSyncing: boolean = false;
+  extensionSyncStatus: string = '';
+  extensionIconVersion: number = 0;
   imageUri: string = '';
   imageLabel: string = '';
   imageLoading: boolean = false;
@@ -54,6 +57,8 @@ export abstract class UiState {
   abstract loadPermissions(): Promise<void>;
   abstract applyPermissions(mode: string, confirmFullAccess: boolean): Promise<void>;
   abstract loadExtensions(query: string): Promise<void>;
+  abstract syncExtensions(): Promise<void>;
+  abstract loadExtensionIcon(item: ExtensionItem): Promise<string>;
   abstract toggleReference(item: ExtensionItem): Promise<void>;
   abstract loadImage(ref: ImageReference): Promise<string>;
   abstract readImage(ref: ImageReference): Promise<void>;
