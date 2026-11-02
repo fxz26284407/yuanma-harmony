@@ -78,3 +78,5 @@ export interface ImageChunk { data: string; mime: string; totalBytes: number; ne
 export interface ThreadManagementRequest { action: string; name?: string; pinned?: boolean; targetProjectId?: string; sectionId?: string; }
 export interface ThreadManagementBody extends ThreadManagementRequest { projectId: string; }
 export interface ThreadManagementResult { id: string; projectId: string; name: string; displayName: string; pinned: boolean; sectionId: string; sectionName: string; archived?: boolean; permissionMode?: string; }
+
+export interface CreateProjectBody { name: string; requestId: string; parentPath: string; }

@@ -24,7 +24,7 @@ export struct MentionControls {
             Button() { Row({ space: 10 }) { SymbolGlyph(item.kind === 'plugin' ? $r('sys.symbol.rectangle_on_rectangle') : $r('sys.symbol.doc_text')).fontSize(19).fontColor([AppTheme.accent]); Column({ space: 4 }) { Text(item.name).fontSize(14).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); Text((item.kind === 'plugin' ? '插件 · ' : 'Skill · ') + item.description).fontSize(11).fontColor(AppTheme.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }) }.layoutWeight(1).alignItems(HorizontalAlign.Start); if (this.client.references.some((r: ExtensionItem) => r.id === item.id)) { SymbolGlyph($r('sys.symbol.checkmark')).fontSize(14).fontColor([AppTheme.accent]) } }.padding(10).height(58).width('100%') }
               .id('extension-' + item.id).type(ButtonType.Normal).height(58).width('100%').backgroundColor(Color.Transparent).borderRadius(10).enabled(!this.client.busy)
               .onClick(() => { this.client.toggleReference(item).then(async () => { await this.client.updateDraft(this.client.draft.replace(/(^|\s)@[^\s@]*$/, '$1')); this.open = false; this.typing = false; }).catch((e: Error) => { this.error = this.client.userFacingError(e); }); })
-          }, (item: ExtensionItem) => item.id)
+          }, (item: ExtensionItem) => JSON.stringify(item))
           if (!this.client.extensionLoading && this.client.extensionItems.length === 0) { Text('没有可用的匹配项').fontSize(13).fontColor(AppTheme.secondary).padding(16) }
         }.width('100%')
       }.width('100%').constraintSize({ maxHeight: 290 }).scrollBar(BarState.Off).align(Alignment.TopStart)

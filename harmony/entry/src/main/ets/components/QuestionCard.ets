@@ -38,13 +38,13 @@ export struct QuestionCard {
                   }.id('question-option-' + q.id + '-' + option.label).enabled(!this.request.answered && !this.client.busy).type(ButtonType.Normal).width('100%').borderRadius(14).backgroundColor(this.choices.get(q.id) === option.label ? AppTheme.subtle : AppTheme.subtle)
                     .accessibilityText(option.label + (this.choices.get(q.id) === option.label ? '，已选择' : ''))
                     .onClick(() => { this.choices.set(q.id, option.label); this.choices = new Map(this.choices); })
-                }, (option: QuestionOption) => option.label)
+                }, (option: QuestionOption) => JSON.stringify(option))
               }
               TextInput({ text: this.notes.get(q.id) || '', placeholder: q.options && !q.isSecret ? '补充说明，或直接输入回答' : '输入回答' })
                 .id('question-note-' + q.id).enabled(!this.request.answered).type(q.isSecret ? InputType.Password : InputType.Normal).maxLength(4096).height(48).fontSize(14).fontColor(AppTheme.text).placeholderColor(AppTheme.muted).backgroundColor(AppTheme.subtle).borderRadius(12)
                 .onChange((value: string) => { this.notes.set(q.id, value); this.notes = new Map(this.notes); })
             }.width('100%').alignItems(HorizontalAlign.Start)
-          }, (q: QuestionItem) => q.id)
+          }, (q: QuestionItem) => JSON.stringify(q))
         }.width('100%')
       }.width('100%').constraintSize({ maxHeight: 420 }).scrollBar(BarState.Off).align(Alignment.TopStart)
       if (this.errorText) { Text(this.errorText).fontSize(13).fontColor(AppTheme.error) }

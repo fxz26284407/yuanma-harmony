@@ -25,7 +25,7 @@ export struct ModelControls {
             Button() { Row({ space: 10 }) { Text(m.name).fontSize(14).fontColor(AppTheme.text).layoutWeight(1); if (m.model === this.client.selectedModel) { SymbolGlyph($r('sys.symbol.checkmark')).fontSize(17).fontColor([AppTheme.text]) } }.padding({ left: 12, right: 12 }).height(44).width('100%') }
               .type(ButtonType.Normal).width('100%').height(44).borderRadius(12).backgroundColor(m.model === this.client.selectedModel ? AppTheme.subtle : Color.Transparent)
               .enabled(!this.client.busy && this.client.projects.some((p) => p.id === this.client.selectedProjectId && p.capability === 'control')).onClick(() => { this.apply(m.model, m.defaultEffort).then(() => { if (!this.error) { this.showModels = false; } }); })
-          }, (m: ModelItem) => m.model)
+          }, (m: ModelItem) => JSON.stringify(m))
         }.width('100%')
       }.constraintSize({ maxHeight: 352 }).width('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
       if (this.error) { Text(this.error).fontSize(12).fontColor(AppTheme.error).width('100%') }

@@ -1,3 +1,4 @@
+import { CreateProjectBody } from './UiTypes';
 import { connection } from '@kit.NetworkKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -84,7 +85,7 @@ export class MobileSession extends UiState {
     const pending: string = await this.identity.get('pendingSend');
     if (pending) { this.pendingSend = JSON.parse(pending) as PendingSend; this.lastMessageState = 'unknown'; }
     const cached: string = await this.identity.get('knownMac');
-    if (cached.length > 0) { this.mac = JSON.parse(cached) as KnownMac; this.hasKnownMac = true; this.fingerprint = this.mac.gatewayId; }
+    if (cached.length > 0) { this.mac = JSON.parse(cached) as KnownMac; this.hasKnownMac = true; this.fingerprint = this.mac.gatewayId; this.projectCreationPath = (await this.identity.get('projectCreationPath.' + this.mac.gatewayId)) || '~/workspace'; }
     this.initialized = true; this.watchNetwork();
   }
   private async connect(mac: KnownMac, generation: number = this.generation): Promise<void> {
@@ -95,6 +96,7 @@ export class MobileSession extends UiState {
       await this.rpc.connect(key, mac.publicKey, mac.gatewayId, mac.relayUrl);
     } finally { new Uint8Array(key.privateKey).fill(0); }
     this.checkGeneration(generation); this.mac = mac; this.encrypted = true; this.fingerprint = mac.gatewayId; this.status = '安全会话已建立';
+    this.projectCreationPath = (await this.identity.get('projectCreationPath.' + mac.gatewayId)) || '~/workspace'; this.checkGeneration(generation);
   }
   private async sign(challenge: AuthChallenge, purpose: string, deviceId: string): Promise<string> {
     if (this.mac === undefined) { throw new Error('缺少固定的 Mac 身份'); }
@@ -516,6 +518,35 @@ export class MobileSession extends UiState {
       if (value.state === 'busy') { this.suggestionRequestKey = ''; return; }
       this.suggestionState = value.state; this.suggestionText = value.text;
     }).catch(() => { if (generation === this.generation && thread === this.selectedThreadId) { this.suggestionRequestKey = ''; } }).finally(() => { this.suggestionPending = false; });
+  }
+  async saveProjectCreationPath(path: string): Promise<void> {
+    const value: string = path.trim();
+    if (!value || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value) || !(value.startsWith('/') || value === '~' || value.startsWith('~/'))) { throw new Error('请输入 Mac 绝对路径或 ~/ 开头的路径'); }
+    if (!this.mac) { throw new Error('请先连接 Mac'); }
+    const generation: number = this.generation;
+    await this.identity.put('projectCreationPath.' + this.mac.gatewayId, value); this.checkGeneration(generation);
+    this.projectCreationPath = value;
+  }
+  async createProject(name: string): Promise<void> {
+    if (this.busy || !this.authenticated) { throw new Error('请先连接 Mac，等待当前操作完成'); }
+    if (this.newProjectCapability !== 'control') { throw new Error('请先在 Mac 将此设备的新项目权限设为自动可执行'); }
+    const title: string = name.trim();
+    if (!title || title === '.' || title === '..' || /[\\/\x00-\x1f\x7f]/.test(title)) { throw new Error('请输入有效项目名称，不能包含路径分隔符'); }
+    this.busy = true;
+    try {
+      const generation: number = this.generation;
+      const parentPath: string = this.projectCreationPath;
+      const md = cryptoFramework.createMd('SHA256'); await md.update({ data: new Uint8Array(utf8(JSON.stringify([this.mac!.gatewayId, parentPath, title]))) }); this.checkGeneration(generation);
+      const storageKey: string = 'createProject.' + hex((await md.digest()).data.slice().buffer as ArrayBuffer); this.checkGeneration(generation);
+      let requestId: string = await this.identity.get(storageKey); this.checkGeneration(generation);
+      if (!requestId) { requestId = encode(cryptoFramework.createRandom().generateRandomSync(16).data.slice().buffer as ArrayBuffer); await this.identity.put(storageKey, requestId); this.checkGeneration(generation); }
+      const body: CreateProjectBody = { name: title, requestId: requestId, parentPath: parentPath };
+      const project = await this.rpc.request<ProjectItem>('POST', '/v1/projects', body, this.authorization()); this.checkGeneration(generation);
+      this.projects = [...this.projects.filter((p: ProjectItem) => p.id !== project.id), project];
+      this.selectedProjectId = project.id;
+    } finally { this.busy = false; }
+    await this.createThread();
+    await this.refreshNavigation();
   }
   async createThread(): Promise<void> {
     if (this.busy || !this.selectedProjectId) { throw new Error('请先选择项目'); }

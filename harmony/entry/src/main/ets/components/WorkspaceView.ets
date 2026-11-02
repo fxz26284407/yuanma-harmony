@@ -147,6 +147,7 @@ export struct WorkspaceView {
   private ProjectRows() {
     Scroll() {
       Column({ space: 4 }) {
+        // ForEach caches by key; replaced snapshots must invalidate the captured row data.
         ForEach(this.client.projects, (project: ProjectItem) => {
           Button() {
             Row({ space: 12 }) {
@@ -156,7 +157,7 @@ export struct WorkspaceView {
             }.height(64).padding({ left: 12, right: 12 }).width('100%')
           }.id('project-' + project.id).type(ButtonType.Normal).width('100%').height(64).backgroundColor(this.client.selectedProjectId === project.id ? AppTheme.selected : Color.Transparent).borderRadius(12).enabled(!this.client.busy)
             .onClick(() => { this.errorText = ''; this.client.selectProject(project.id).then(async () => { this.showProjects = false; if (project.capability === 'control') { await this.client.createThread(); this.changePage('chat'); } else { this.changePage('threads'); } }).catch((e: Error) => { this.errorText = this.safeError(e); }); })
-        }, (project: ProjectItem) => project.id)
+        }, (project: ProjectItem) => JSON.stringify([project.id, project.name, project.capability]))
         if (!this.client.projects.length) { Text(this.client.authenticated ? 'Mac 尚未授权项目' : '连接 Mac 后选择项目').fontSize(14).fontColor(AppTheme.secondary).padding(24) }
       }.width('100%')
     }.width('100%').constraintSize({ maxHeight: 420 }).scrollBar(BarState.Off).align(Alignment.TopStart)
@@ -213,7 +214,7 @@ export struct WorkspaceView {
           ForEach(this.client.threads.filter((t: ThreadItem) => t.name.toLowerCase().includes(this.threadSearch.toLowerCase())), (thread: ThreadItem) => {
             Button() { Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.message')).fontSize(18).fontColor([AppTheme.secondary]); Text(thread.name).fontSize(14).fontColor(AppTheme.text).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1); if (thread.status === 'active') { LoadingProgress().height(16).width(16).color(AppTheme.accent) } }.padding(12).width('100%').constraintSize({ minHeight: 56 }) }
               .type(ButtonType.Normal).width('100%').backgroundColor(thread.id === this.client.selectedThreadId ? AppTheme.selected : Color.Transparent).borderRadius(12).enabled(!this.client.busy).onClick(() => { this.errorText = ''; this.client.selectThread(thread).then(() => { this.changePage('chat'); }).catch((e: Error) => { this.errorText = this.safeError(e); }); })
-          }, (thread: ThreadItem) => thread.id)
+          }, (thread: ThreadItem) => JSON.stringify(thread))
         }.width('100%')
       }.layoutWeight(1).width('100%').scrollBar(BarState.Off).align(Alignment.TopStart)
     }.layoutWeight(1).width('100%')
@@ -257,7 +258,7 @@ export struct WorkspaceView {
           Button() { Row({ space: 8 }) { Text(this.client.permissionNotice).fontSize(12).lineHeight(18).fontColor(AppTheme.warningText).layoutWeight(1); Text('设置权限').fontSize(12).fontColor(AppTheme.text) }.width('100%') }
             .id('composer-permission-notice').type(ButtonType.Normal).width('100%').constraintSize({ minHeight: 44 }).padding({ left: 4, right: 4 }).backgroundColor(Color.Transparent).enabled(!this.client.busy).onClick(() => { this.showPermissions = true; })
         }
-        if (this.client.references.length > 0) { Scroll() { Row({ space: 8 }) { ForEach(this.client.references, (ref: ExtensionItem) => { Button() { Row({ space: 6 }) { Text('@' + ref.name).fontSize(12).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); SymbolGlyph($r('sys.symbol.xmark')).fontSize(10).fontColor([AppTheme.secondary]) }.padding({ left: 10, right: 10 }).height(32) }.id('remove-reference-' + ref.id).type(ButtonType.Normal).height(44).constraintSize({ maxWidth: 190 }).padding(0).backgroundColor(AppTheme.contentSurface).borderRadius(12).enabled(!this.client.busy).onClick(() => { this.client.toggleReference(ref).catch((e: Error) => { this.errorText = this.safeError(e); }); }) }, (ref: ExtensionItem) => ref.id) } }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(44).width('100%') }
+        if (this.client.references.length > 0) { Scroll() { Row({ space: 8 }) { ForEach(this.client.references, (ref: ExtensionItem) => { Button() { Row({ space: 6 }) { Text('@' + ref.name).fontSize(12).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); SymbolGlyph($r('sys.symbol.xmark')).fontSize(10).fontColor([AppTheme.secondary]) }.padding({ left: 10, right: 10 }).height(32) }.id('remove-reference-' + ref.id).type(ButtonType.Normal).height(44).constraintSize({ maxWidth: 190 }).padding(0).backgroundColor(AppTheme.contentSurface).borderRadius(12).enabled(!this.client.busy).onClick(() => { this.client.toggleReference(ref).catch((e: Error) => { this.errorText = this.safeError(e); }); }) }, (ref: ExtensionItem) => JSON.stringify(ref)) } }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(44).width('100%') }
         Stack({ alignContent: Alignment.TopStart }) {
         TextArea({ text: this.client.draft, placeholder: this.client.projects.some((p: ProjectItem) => p.id === this.client.selectedProjectId && p.capability === 'read') ? '只读项目 · 可保留草稿' : this.client.showSuggestion ? this.client.suggestionText : '与 Codex 协作' }).id('composer-draft').onChange((value: string) => { this.client.updateDraft(value).catch(() => { this.errorText = '草稿保存失败，请保留输入内容'; }); })
           .height(48).fontSize(14).fontStyle(FontStyle.Normal).lineHeight(20).placeholderFont({ size: 14, style: this.client.showSuggestion ? FontStyle.Italic : FontStyle.Normal }).fontColor(AppTheme.text).placeholderColor(this.client.showSuggestion ? AppTheme.suggestionInk : AppTheme.secondary).backgroundColor(Color.Transparent).padding({ left: 6, right: this.client.showSuggestion ? 54 : 6, top: 4, bottom: 4 })
@@ -291,7 +292,7 @@ export struct WorkspaceView {
   @Builder
   private RequestSheet() {
     Column() {
-      ForEach(this.client.approvals.filter((a: ApprovalItem) => a.id === this.activeRequestId), (a: ApprovalItem) => { RequestPanel({ client: this.client, request: a, onClose: () => { this.showRequest = false; }, onHandled: () => { this.showRequest = false; } }) }, (a: ApprovalItem) => a.id)
+      ForEach(this.client.approvals.filter((a: ApprovalItem) => a.id === this.activeRequestId), (a: ApprovalItem) => { RequestPanel({ client: this.client, request: a, onClose: () => { this.showRequest = false; }, onHandled: () => { this.showRequest = false; } }) }, (a: ApprovalItem) => JSON.stringify(a))
       if (!this.client.approvals.some((a: ApprovalItem) => a.id === this.activeRequestId)) { SheetHeader({ title: '请求已处理', onClose: () => { this.showRequest = false; } }); Text('请求已处理或已失效').fontSize(14).fontColor(AppTheme.secondary).padding(24); Button('返回会话').height(44).onClick(() => { this.showRequest = false; }) }
     }.width('100%')
   }

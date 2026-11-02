@@ -6,6 +6,8 @@ export * from './UiTypes';
 @Observed
 export abstract class UiState {
   activityTitle: string = '';
+  projectCreationPath: string = '~/workspace';
+  abstract saveProjectCreationPath(path: string): Promise<void>;
   newProjectCapability: string = 'none';
   nextSuggestionEnabled: boolean = true;
   suggestionText: string = '';
@@ -113,6 +115,7 @@ export abstract class UiState {
   abstract loadModelSettings(): Promise<void>;
   abstract applyModel(model: string, effort: string, serviceTier?: string): Promise<void>;
   abstract updateDraft(value: string): Promise<void>;
+  abstract createProject(name: string): Promise<void>;
   abstract createThread(): Promise<void>;
   abstract selectProject(projectId: string): Promise<void>;
   abstract selectThread(thread: ThreadItem): Promise<void>;

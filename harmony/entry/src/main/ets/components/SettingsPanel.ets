@@ -1,23 +1,42 @@
 import { SheetHeader } from './SheetHeader';
 import { UiState, ProjectItem } from '../model/UiState';
 import { AppTheme } from '../theme/AppTheme';
+interface SettingsInfoRow {
+  icon: Resource;
+  title: string;
+  value: string;
+  action: () => void;
+}
 @Component
 export struct SettingsPanel {
   @ObjectLink client: UiState;
   onNavigate: (page: string) => void = () => {};
   @State private info: string = '';
+  @State private projectPath: string = '';
+  @State private pathError: string = '';
+  @State private savingPath: boolean = false;
+  private async savePath(): Promise<void> {
+    this.savingPath = true; this.pathError = '';
+    try { await this.client.saveProjectCreationPath(this.projectPath); this.info = ''; } catch (error) { this.pathError = (error as Error).message; } finally { this.savingPath = false; }
+  }
   @State private infoTitle: string = '';
   @Builder
-  private InfoRow(icon: Resource, title: string, value: string, action: () => void) {
-    Button() { Row({ space: 12 }) { SymbolGlyph(icon).fontSize(20).fontColor([AppTheme.secondary]); Text(title).fontSize(14).fontColor(AppTheme.text).layoutWeight(1); if (value) { Text(value).fontSize(12).fontColor(AppTheme.secondary) } SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(12).fontColor([AppTheme.muted]) }.padding({ left: 16, right: 16 }).height(54).width('100%') }
-      .type(ButtonType.Normal).width('100%').height(54).backgroundColor(Color.Transparent).onClick(() => { this.infoTitle = title; action(); })
+  private InfoRow($$: SettingsInfoRow) {
+    Button() { Row({ space: 12 }) { SymbolGlyph($$.icon).fontSize(20).fontColor([AppTheme.secondary]); Text($$.title).fontSize(14).fontColor(AppTheme.text).layoutWeight(1); if ($$.value) { Text($$.value).fontSize(12).fontColor(AppTheme.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: '45%' }) } SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(12).fontColor([AppTheme.muted]) }.padding({ left: 16, right: 16 }).height(54).width('100%') }
+      .type(ButtonType.Normal).width('100%').height(54).backgroundColor(Color.Transparent).onClick(() => { this.infoTitle = $$.title; $$.action(); })
   }
   @Builder
   private Details() {
     Column({ space: 16 }) {
       SheetHeader({ title: this.infoTitle || '提示', onClose: () => { this.info = ''; } })
       Scroll() {
-        if (this.infoTitle === '项目访问权限' && this.client.projects.length > 0) {
+        if (this.infoTitle === '默认项目创建路径') {
+          Column({ space: 12 }) {
+            Text('填写 Mac 上的父目录，新项目将创建在此目录下。支持绝对路径和 ~/，按所连接的 Mac 分别保存。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
+            TextInput({ text: this.projectPath, placeholder: '~/workspace' }).id('project-creation-path-input').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(4096).onChange((value: string) => { this.projectPath = value; })
+            if (this.pathError) { Text(this.pathError).fontSize(12).fontColor(AppTheme.error).width('100%') }
+          }.width('100%')
+        } else if (this.infoTitle === '项目访问权限' && this.client.projects.length > 0) {
           Column({ space: 8 }) {
             ForEach(this.client.projects, (project: ProjectItem) => {
               Row({ space: 12 }) {
@@ -25,11 +44,11 @@ export struct SettingsPanel {
                 Text(project.name || project.id).fontSize(14).fontWeight(FontWeight.Medium).lineHeight(21).fontColor(AppTheme.text).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
                 Text(project.capability === 'control' ? '可执行' : '只读').fontSize(11).fontColor(project.capability === 'control' ? AppTheme.text : AppTheme.secondary).height(26).padding({ left: 10, right: 10 }).backgroundColor(project.capability === 'control' ? AppTheme.chip : AppTheme.subtle).borderRadius(10)
               }.id('settings-project-' + project.id).padding(12).width('100%').constraintSize({ minHeight: 58 }).backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.subtle }).borderRadius(12)
-            }, (project: ProjectItem) => project.id)
+            }, (project: ProjectItem) => JSON.stringify([project.id, project.name, project.capability]))
           }.width('100%')
         } else { Text(this.info).fontSize(14).lineHeight(24).fontColor(AppTheme.text).width('100%').copyOption(CopyOptions.LocalDevice) }
       }.id('settings-info-content').width('100%').constraintSize({ maxHeight: 360 }).align(Alignment.TopStart).scrollBar(BarState.Auto)
-      Button('完成').id('settings-info-close').height(44).width('100%').fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).borderRadius(14).onClick(() => { this.info = ''; })
+      Button(this.infoTitle === '默认项目创建路径' ? '保存路径' : '完成').id('settings-info-close').height(44).width('100%').fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).borderRadius(14).enabled(!this.savingPath).onClick(() => { if (this.infoTitle === '默认项目创建路径') { this.savePath(); } else { this.info = ''; } })
     }.id('settings-info-sheet').padding({ left: 20, right: 20, top: 20, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
   }
   build() {
@@ -38,11 +57,13 @@ export struct SettingsPanel {
         Column({ space: 6 }) {
           Text('连接').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 12, bottom: 6 })
           Column() {
-            this.InfoRow($r('sys.symbol.link'), 'Mac', this.client.authenticated ? '已连接' : '未连接', () => { this.onNavigate('connect'); })
+            this.InfoRow({ icon: $r('sys.symbol.link'), title: 'Mac', value: this.client.authenticated ? '已连接' : '未连接', action: () => { this.onNavigate('connect'); } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
-            this.InfoRow($r('sys.symbol.info_circle'), '连接信息', '', () => { this.info = this.client.fingerprint ? 'Mac 身份指纹\n' + this.client.fingerprint + '\n端到端加密连接，密钥证明后鉴权。' : '连接 Mac 后可查看设备身份。'; })
+            this.InfoRow({ icon: $r('sys.symbol.info_circle'), title: '连接信息', value: '', action: () => { this.info = this.client.fingerprint ? 'Mac 身份指纹\n' + this.client.fingerprint + '\n端到端加密连接，密钥证明后鉴权。' : '连接 Mac 后可查看设备身份。'; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
-            this.InfoRow($r('sys.symbol.folder'), '项目访问权限', this.client.projects.length + ' 个项目', () => { this.info = this.client.projects.length ? this.client.projects.length + ' 个已授权项目' : '暂无授权项目'; })
+            this.InfoRow({ icon: $r('sys.symbol.folder'), title: '项目访问权限', value: this.client.projects.length + ' 个项目', action: () => { this.info = this.client.projects.length ? this.client.projects.length + ' 个已授权项目' : '暂无授权项目'; } })
+            Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
+            this.InfoRow({ icon: $r('sys.symbol.folder'), title: '默认项目创建路径', value: this.client.projectCreationPath, action: () => { this.projectPath = this.client.projectCreationPath; this.pathError = ''; this.info = 'path'; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
             Row() { Text('新项目权限').fontSize(14).fontColor(AppTheme.text).layoutWeight(1); Text(this.client.newProjectCapability === 'control' ? '自动可执行' : this.client.newProjectCapability === 'read' ? '自动只读' : '逐项授权').id('new-project-policy').fontSize(12).fontColor(AppTheme.secondary) }.padding({ left: 16, right: 16 }).height(54).width('100%')
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
@@ -65,7 +86,7 @@ export struct SettingsPanel {
         }.width('100%')
         Column({ space: 6 }) {
           Text('关于').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 12, bottom: 6 })
-          Column() { this.InfoRow($r('sys.symbol.lock'), '设备与隐私', '', () => { this.info = '设备签名使用 HUKS；配对身份由 Mac 固定公钥验证。草稿仅保存在本机；秘密回答不写入草稿。'; }); this.InfoRow($r('sys.symbol.doc_text'), '版本信息', '开发构建', () => { this.info = '远码 · HarmonyOS 原生客户端'; }) }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
+          Column() { this.InfoRow({ icon: $r('sys.symbol.lock'), title: '设备与隐私', value: '', action: () => { this.info = '设备签名使用 HUKS；配对身份由 Mac 固定公钥验证。草稿仅保存在本机；秘密回答不写入草稿。'; } }); this.InfoRow({ icon: $r('sys.symbol.doc_text'), title: '版本信息', value: '开发构建', action: () => { this.info = '远码 · HarmonyOS 原生客户端'; } }) }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
         }.width('100%')
         Button() { Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.power')).fontSize(20).fontColor([AppTheme.error]); Text('断开连接').fontSize(14).fontColor(AppTheme.error).layoutWeight(1) }.padding(16).width('100%') }.type(ButtonType.Normal).height(54).width('100%').backgroundColor(AppTheme.subtle).borderRadius(18).onClick(() => { this.client.pauseConnection(); this.onNavigate('connect'); })
       }.padding({ top: 20, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
