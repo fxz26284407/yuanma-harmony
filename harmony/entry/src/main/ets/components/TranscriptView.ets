@@ -76,7 +76,7 @@ export struct TranscriptView {
             Row() {
               if (message.role === 'user') { Blank().width('10%') }
               Column({ space: 6 }) {
-                if (message.question) { QuestionCard({ client: this.client, request: message.question, inline: true }) } else if (message.role === 'user' && message.text) { Text(message.text).fontSize(14).lineHeight(20).fontColor(AppTheme.text).copyOption(CopyOptions.LocalDevice) } else if (message.role !== 'user' && message.text) { MarkdownBody({ text: message.text }) }
+                if (message.question) { QuestionCard({ client: this.client, request: message.question, inline: true }) } else if (message.role === 'user' && message.text) { Text(message.text.trimEnd()).fontSize(14).lineHeight(20).fontColor(AppTheme.text).copyOption(CopyOptions.LocalDevice) } else if (message.role !== 'user' && message.text) { MarkdownBody({ text: message.text }) }
                 if (message.images.length > 0) { this.Images(message) }
                 if (message.hasMore) { this.ReadLink(message) }
               }.padding(message.role === 'user' ? 12 : 0).layoutWeight(1).borderRadius(20).alignItems(HorizontalAlign.Start).backgroundColor(message.role === 'user' ? AppTheme.bubble : Color.Transparent)
