@@ -1,0 +1,6 @@
+Mode: built-in imagegen, transparent_background=true
+Reference: harmony/AppScope/resources/base/media/codex_user_icon.png
+Selected asset: harmony/entry/src/main/resources/base/media/yuanma_logo_transparent.png
+
+Final prompt:
+Recreate the supplied EXISTING APP LOGO as a pristine clean vector-style transparent PNG, preserving the exact three interlocking ribbon-loop silhouettes and blue/violet color placement. This is a production navigation icon, not a redesign. Three smooth thick continuous flat ribbon shapes ONLY: two vivid blue portions and one violet portion, matching the supplied reference's rounded triangular interlocking geometry. All space outside the colored ribbons and all gaps/holes inside the mark must be completely transparent (alpha 0). Remove the white background. Each colored ribbon must be fully opaque and uniformly clean, without transparent speckles, noise, perforations, fuzzy fragments, fringe pixels or stray marks. Smooth precision vector-like contours and antialiased edges; simple flat fills, minimal shading as in the reference. No texture, shadows, glow, frame, rounded-square app-icon tile, checkerboard background, text or extra symbols. The isolated mark should fill 88 percent of a centered square canvas. Output a single genuinely transparent PNG with only the clean colored emblem.

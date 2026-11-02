@@ -1,4 +1,4 @@
-import { ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest } from './UiTypes';
+import { ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest, ProjectManagementRequest } from './UiTypes';
 import { common } from '@kit.AbilityKit';
 import { PairMaterial, KnownMac, ClaimResult, ClaimBody, ProofBody, LoginBody, LoginProof, PairStatus, LoginResult, ProjectItem, ThreadItem, ThreadPage, SnapshotBackend, SnapshotMessage, ExecutionSummary, LiveProgress, Snapshot, TextInputItem, HistoryItem, HistoryTurn, HistoryPage, HistoryChunk, MessageView, MessagePayload, PendingSend, SendBody, QueuedMessage, SteerBody, OperationResult, QuestionOption, QuestionItem, QuestionAnswer, QuestionReplyBody, ApprovalItem, ApprovalReplyBody, ApprovalReplyResult, InterruptBody, InterruptResult, CancelBody, NavigationThread, NavigationProject, NavigationSection, NavigationData, ModelItem, ModelSettings, ModelSettingsBody, CreateThreadBody, BackendStatus } from './UiTypes';
 export * from './UiTypes';
@@ -115,6 +115,7 @@ export abstract class UiState {
   abstract cancelQueued(submissionId?: string): Promise<void>;
   abstract steer(turnId: string, submissionId?: string): Promise<void>;
   abstract manageThread(thread: NavigationThread, request: ThreadManagementRequest): Promise<void>;
+  abstract manageProject(project: ProjectItem, request: ProjectManagementRequest): Promise<void>;
   abstract refreshNavigation(): Promise<void>;
   abstract openNavigationThread(thread: NavigationThread): Promise<void>;
   abstract loadModelSettings(): Promise<void>;

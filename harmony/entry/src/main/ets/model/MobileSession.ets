@@ -1,4 +1,4 @@
-import { CreateProjectBody } from './UiTypes';
+import { CreateProjectBody, ProjectManagementRequest } from './UiTypes';
 import { connection } from '@kit.NetworkKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -341,6 +341,17 @@ export class MobileSession extends UiState {
     else if (request.action === 'project' && thread.id === this.selectedThreadId) { await this.loadHistory(); await this.loadPermissions(); }
     await this.refreshNavigation();
   }
+  async manageProject(project: ProjectItem, request: ProjectManagementRequest): Promise<void> {
+    if (!this.authenticated || this.busy) { throw new Error('当前连接不可用或正在处理，请稍后重试'); }
+    if (!this.projects.some((p: ProjectItem) => p.id === project.id && p.capability === 'control')) { throw new Error('此项目只读或未授权，不能修改'); }
+    this.busy = true;
+    try {
+      const generation: number = this.generation;
+      await this.rpc.request<void>('POST', '/v1/projects/' + project.id + '/management', request, this.authorization());
+      this.checkGeneration(generation);
+    } finally { this.busy = false; }
+    await this.refreshNavigation();
+  }
   async refreshNavigation(): Promise<void> {
     if (!this.authenticated || this.busy) { return; } this.busy = true;
     try { const generation: number = this.generation; const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.navigation = navigation; this.newProjectCapability = navigation.newProjectCapability || 'none'; const projects = [...navigation.projects, ...navigation.sections.reduce((items: ProjectItem[], section: NavigationSection) => [...items, ...section.projects], [])]; const seen: Set<string> = new Set<string>(); this.projects = projects.filter((p: ProjectItem) => ['read', 'control'].includes(p.capability) && !seen.has(p.id) && !!seen.add(p.id)); } finally { this.busy = false; }
@@ -656,13 +667,14 @@ export class MobileSession extends UiState {
       // Persisted history is authoritative once a turn ends; old previews must not reappear below it.
       if (!snapshot.backend.turnId || live.turnId !== snapshot.backend.turnId) { return; }
       const existing = result.findIndex((m: MessageView) => m.id === live.id);
-      if (existing < 0 && !['running', 'waiting', 'pending'].includes(live.status)) { return; }
-      if (live.status === 'running' || existing < 0) {
+      const compaction: boolean = live.execution?.kind === 'compaction';
+      if (existing < 0 && !compaction && !['running', 'waiting', 'pending'].includes(live.status)) { return; }
+      if (live.status === 'running' || existing < 0 || compaction) {
         const view = new MessageView(live.id, live.role, live.text + (live.truncated ? '\n[较长输出仅显示末尾，完整内容请查看历史]' : ''), live.status);
         view.execution = live.execution;
         view.images = live.images?.length ? live.images : (existing >= 0 ? result[existing].images : []);
         view.itemId = existing >= 0 ? result[existing].itemId : live.id;
-        view.turnId = view.images[0]?.turnId || (existing >= 0 ? result[existing].turnId : '');
+        view.turnId = live.turnId || view.images[0]?.turnId || (existing >= 0 ? result[existing].turnId : '');
         if (existing >= 0) { result[existing] = view; } else { result.push(view); }
       }
     });

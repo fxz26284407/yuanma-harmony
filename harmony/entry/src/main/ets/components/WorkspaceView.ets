@@ -107,6 +107,10 @@ export struct WorkspaceView {
           Text(this.client.authenticated ? 'Mac 已连接' : this.client.hasKnownMac ? (this.client.recovering ? '正在恢复连接' : this.client.recoveryIssue ? this.client.status : '连接已暂停') : '连接一次，随时接续').fontSize(23).fontWeight(FontWeight.Medium).fontColor(AppTheme.text)
           Text(this.client.authenticated ? '可以从侧栏选择项目和会话，继续你的工作。' : this.client.hasKnownMac ? (this.client.recoveryIssue || '已保存 Mac 身份，网络恢复后自动连接，无需重新扫码。') : '在 Mac 上生成配对码，然后用手机扫描。').fontSize(14).lineHeight(24).fontColor(AppTheme.secondary).textAlign(TextAlign.Center)
         }.width('100%').padding({ top: 32, bottom: 12 })
+        Column({ space: 6 }) {
+          if (!this.client.authenticated) { Text('首次使用，请先在自己的 Mac 安装网关并自行部署中继。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%') }
+          Hyperlink('https://github.com/fxz26284407/yuanma-gateway#readme', '查看网关搭建指南（GitHub）').id('gateway-guide-connect').color(this.client.appearance === 'light' ? '#287889' : '#86CDDD').height(44).width('100%').backgroundColor(AppTheme.subtle).borderRadius(14).accessibilityText('在系统浏览器打开 GitHub 网关搭建指南')
+        }.width('100%')
         if (this.client.authenticated) {
           Column({ space: 12 }) {
             Row({ space: 10 }) { SymbolGlyph($r('sys.symbol.link')).fontSize(22).fontColor([AppTheme.text]); Text('Mac').fontSize(17).fontColor(AppTheme.text).layoutWeight(1); Text('端到端加密').fontSize(12).fontColor(AppTheme.accent) }.height(44).width('100%')

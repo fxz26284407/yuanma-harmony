@@ -58,7 +58,8 @@ export interface CancelBody { type: string; clientOperationId: string; submissio
 export interface NavigationThread extends ThreadItem { projectId: string; pinned?: boolean; sectionId?: string; sectionName?: string; }
 export interface NavigationProject extends ProjectItem { threads: NavigationThread[]; }
 export interface NavigationSection { id: string; name: string; projects: NavigationProject[]; threads?: NavigationThread[]; }
-export interface NavigationData { newProjectCapability?: string; pinned?: NavigationThread[]; sections: NavigationSection[]; projects: NavigationProject[]; recent: NavigationThread[]; recentThreads?: NavigationThread[]; }
+export interface DesktopSyncStatus { pending: number; appliedAt: number; error: string; }
+export interface NavigationData { desktopSync?: DesktopSyncStatus; newProjectCapability?: string; pinned?: NavigationThread[]; sections: NavigationSection[]; projects: NavigationProject[]; recent: NavigationThread[]; recentThreads?: NavigationThread[]; }
 export interface ModelItem { model: string; name: string; defaultEffort: string; efforts: string[]; fastTier?: string; }
 export interface ModelSettings { model: string; effort: string; serviceTier?: string; }
 export interface ModelSettingsBody { projectId: string; threadId: string; model: string; effort: string; serviceTier?: string | null; }
@@ -76,6 +77,7 @@ export interface ImageReference { id: string; threadId: string; turnId: string; 
 export interface ImageChunk { data: string; mime: string; totalBytes: number; nextOffset?: number; version: string; }
 
 export interface ThreadManagementRequest { action: string; name?: string; pinned?: boolean; targetProjectId?: string; sectionId?: string; }
+export interface ProjectManagementRequest { action: string; name?: string; sectionId?: string; }
 export interface ThreadManagementBody extends ThreadManagementRequest { projectId: string; }
 export interface ThreadManagementResult { id: string; projectId: string; name: string; displayName: string; pinned: boolean; sectionId: string; sectionName: string; archived?: boolean; permissionMode?: string; }
 

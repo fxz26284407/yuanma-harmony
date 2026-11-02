@@ -42,7 +42,7 @@ export struct TranscriptView {
   }
   private groups(): TranscriptGroup[] {
     const groups: TranscriptGroup[] = [];
-    this.messages.forEach((m: MessageView) => { const prior = groups.length > 0 ? groups[groups.length - 1] : undefined; if (m.role === 'tool' && prior?.tool && prior.items[0].execution?.kind === m.execution?.kind && prior.items[0].status === m.status) { prior.items.push(m); } else { groups.push(new TranscriptGroup(m)); } }); return groups;
+    this.messages.forEach((m: MessageView) => { const prior = groups.length > 0 ? groups[groups.length - 1] : undefined; if (m.role === 'tool' && m.execution?.kind !== 'compaction' && prior?.tool && prior.items[0].execution?.kind === m.execution?.kind && prior.items[0].status === m.status) { prior.items.push(m); } else { groups.push(new TranscriptGroup(m)); } }); return groups;
   }
   @Builder
   private Images(message: MessageView) {
@@ -56,7 +56,12 @@ export struct TranscriptView {
   build() {
     Column({ space: 6 }) {
       ForEach(this.groups(), (group: TranscriptGroup) => {
-        if (group.tool) {
+        if (group.tool && group.items[0].execution?.kind === 'compaction') {
+          Row({ space: 8 }) {
+            SymbolGlyph($r('sys.symbol.doc_text')).fontSize(16).fontColor([AppTheme.secondary])
+            ExecutionLabel({ label: this.summary(group), running: group.items[0].status === 'running', failed: group.items[0].status === 'failed', reduceMotion: this.reduceMotion }).layoutWeight(1)
+          }.id('compaction-' + group.id).height(28).width('100%').accessibilityText(this.summary(group))
+        } else if (group.tool) {
           Column({ space: 6 }) {
             Button() {
               Row({ space: 8 }) {

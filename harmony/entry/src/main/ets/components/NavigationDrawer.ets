@@ -12,7 +12,9 @@ export struct NavigationDrawer {
   @State private error: string = '';
   @State private panel: string = '';
   @State private contextThreadId: string = '';
+  @State private contextProjectId: string = '';
   @State private editingThread: NavigationThread | undefined = undefined;
+  @State private editingProject: NavigationProject | undefined = undefined;
   @State private editName: string = '';
   @State private targetProjectId: string = '';
   @State private targetSectionId: string = '';
@@ -42,10 +44,22 @@ export struct NavigationDrawer {
   private projectKey(project: NavigationProject): string { return JSON.stringify([project, this.collapsed.get(project.id) ?? true]); }
   private sectionKey(section: NavigationSection): string { return JSON.stringify([section, this.collapsed.get(section.id), section.projects.map((p: NavigationProject) => this.collapsed.get(p.id) ?? true)]); }
   private canManage(thread: NavigationThread): boolean { return this.client.authenticated && this.client.projects.some((p) => p.id === thread.projectId && p.capability === 'control'); }
-  private edit(thread: NavigationThread, panel: string): void { this.editingThread = thread; this.editName = thread.name; this.targetProjectId = thread.projectId; this.targetSectionId = thread.pinned ? '' : thread.sectionId || ''; this.error = ''; this.panel = panel; }
+  private edit(thread: NavigationThread, panel: string): void { this.editingProject = undefined; this.editingThread = thread; this.editName = thread.name; this.targetProjectId = thread.projectId; this.targetSectionId = thread.pinned ? '' : thread.sectionId || ''; this.error = ''; this.panel = panel; }
+  private editProject(project: NavigationProject, panel: string): void { this.contextProjectId = ''; this.editingThread = undefined; this.editingProject = project; this.editName = project.name; this.targetSectionId = this.sections().find((s: NavigationSection) => s.projects.some((p: NavigationProject) => p.id === project.id))?.id || ''; this.error = ''; this.panel = panel; }
   private async perform(thread: NavigationThread, request: ThreadManagementRequest): Promise<void> { this.error = ''; try { await this.client.manageThread(thread, request); this.panel = ''; } catch (error) { this.error = this.client.userFacingError(error as Error); } }
+  private async saveProject(): Promise<void> { const project: NavigationProject | undefined = this.editingProject; if (!project) { return; } this.error = ''; try { await this.client.manageProject(project, this.panel === 'projectRename' ? { action: 'rename', name: this.editName.trim() } : { action: 'section', sectionId: this.targetSectionId }); this.panel = ''; } catch (error) { this.error = this.client.userFacingError(error as Error); } }
   private async createProject(): Promise<void> { this.error = ''; try { await this.client.createProject(this.editName); this.panel = ''; this.search = ''; this.onNavigate('chat'); } catch (error) { this.error = this.client.userFacingError(error as Error); } }
-  private savePanel(): void { if (this.panel === 'create') { this.createProject(); return; } const thread: NavigationThread | undefined = this.editingThread; if (!thread) { return; } this.perform(thread, this.panel === 'rename' ? { action: 'rename', name: this.editName.trim() } : this.panel === 'project' ? { action: 'project', targetProjectId: this.targetProjectId } : { action: 'section', sectionId: this.targetSectionId }); }
+  private savePanel(): void { if (this.panel === 'create') { this.createProject(); return; } if (this.panel === 'projectRename' || this.panel === 'projectSection') { this.saveProject(); return; } const thread: NavigationThread | undefined = this.editingThread; if (!thread) { return; } this.perform(thread, this.panel === 'rename' ? { action: 'rename', name: this.editName.trim() } : this.panel === 'project' ? { action: 'project', targetProjectId: this.targetProjectId } : { action: 'section', sectionId: this.targetSectionId }); }
+  @Builder
+  private ProjectMenu(project: NavigationProject) {
+    Column({ space: 2 }) {
+      Button() { Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(18).fontColor([AppTheme.secondary]); Text('重新命名').fontSize(14).fontColor(AppTheme.text).layoutWeight(1) }.padding({ left: 12, right: 12 }).height(44).width('100%') }
+        .id('project-menu-rename').type(ButtonType.Normal).height(44).width('100%').backgroundColor(Color.Transparent).borderRadius(10).enabled(project.capability === 'control' && !this.client.busy).onClick(() => { this.editProject(project, 'projectRename'); })
+      Button() { Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.list_bullet')).fontSize(18).fontColor([AppTheme.secondary]); Text('分区').fontSize(14).fontColor(AppTheme.text).layoutWeight(1); SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(11).fontColor([AppTheme.muted]) }.padding({ left: 12, right: 12 }).height(44).width('100%') }
+        .id('project-menu-section').type(ButtonType.Normal).height(44).width('100%').backgroundColor(Color.Transparent).borderRadius(10).enabled(project.capability === 'control' && !this.client.busy).onClick(() => { this.editProject(project, 'projectSection'); })
+      if (project.capability !== 'control') { Text('此项目只读或未授权，不能修改').fontSize(12).fontColor(AppTheme.secondary).padding(12) }
+    }.id('project-actions-' + project.id).accessibilityText('项目操作：' + project.name).padding(6).width(196)
+  }
   @Builder
   private ActionRow(thread: NavigationThread, key: string, title: string, icon: Resource) {
     Button() { Row({ space: 12 }) { SymbolGlyph(icon).fontSize(18).fontColor([AppTheme.secondary]); Text(title).fontSize(14).fontColor(AppTheme.text).layoutWeight(1); if (key === 'project' || key === 'section') { SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(11).fontColor([AppTheme.muted]) } }.padding({ left: 12, right: 12 }).height(44).width('100%') }
@@ -58,7 +72,7 @@ export struct NavigationDrawer {
       this.ActionRow(thread, 'rename', '重新命名', $r('sys.symbol.square_and_pencil'))
       this.ActionRow(thread, 'pin', thread.pinned ? '取消固定' : '固定', $r('sys.symbol.pin'))
       this.ActionRow(thread, 'project', '项目', $r('sys.symbol.folder'))
-      this.ActionRow(thread, 'section', '区段', $r('sys.symbol.list_bullet'))
+      this.ActionRow(thread, 'section', '分区', $r('sys.symbol.list_bullet'))
       Divider().color(AppTheme.border).margin({ top: 4, bottom: 4 })
       this.ActionRow(thread, 'archive', '封存', $r('sys.symbol.archivebox'))
     }.id('thread-actions-' + thread.id).accessibilityText('会话操作：' + thread.name).padding(6).width(196)
@@ -66,26 +80,26 @@ export struct NavigationDrawer {
   @Builder
   private Editor() {
     Column({ space: 14 }) {
-      SheetHeader({ title: this.panel === 'create' ? '新建项目' : this.panel === 'rename' ? '重新命名' : this.panel === 'project' ? '移动到项目' : '移动到区段', onClose: () => { this.panel = ''; } })
+      SheetHeader({ title: this.panel === 'create' ? '新建项目' : this.panel === 'rename' || this.panel === 'projectRename' ? '重新命名' : this.panel === 'projectSection' ? '分区' : this.panel === 'project' ? '移动到项目' : '移动到分区', onClose: () => { this.panel = ''; } })
       if (this.panel === 'create') {
         Text('项目目录位于 Mac 的 ' + this.client.projectCreationPath + ' 下，创建后自动授权此设备执行。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
         TextInput({ text: this.editName, placeholder: '输入项目名称' }).id('new-project-name').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(80).onChange((value: string) => { this.editName = value; })
-      } else if (this.panel === 'rename') { TextInput({ text: this.editName, placeholder: '输入会话名称' }).id('thread-name-input').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(80).onChange((value: string) => { this.editName = value; }) }
+      } else if (this.panel === 'rename' || this.panel === 'projectRename') { TextInput({ text: this.editName, placeholder: this.panel === 'projectRename' ? '输入项目名称' : '输入会话名称' }).id(this.panel === 'projectRename' ? 'project-name-input' : 'thread-name-input').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(80).onChange((value: string) => { this.editName = value; }) }
       else if (this.panel === 'project') {
         Text('移动后，后续任务会在该项目目录工作，审批模式保持不变。请先完成当前任务并处理待发送消息。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
         Scroll() { Column({ space: 2 }) { ForEach(this.client.projects, (project: ProjectItem) => {
           Button() { Row() { Text(project.name).fontSize(14).fontColor(project.capability === 'control' ? AppTheme.text : AppTheme.muted).layoutWeight(1); if (project.id === this.targetProjectId) { SymbolGlyph($r('sys.symbol.checkmark')).fontSize(16).fontColor([AppTheme.accent]) } }.padding({ left: 12, right: 12 }).height(48).width('100%') }.id('move-project-' + project.id).type(ButtonType.Normal).height(48).width('100%').backgroundColor(project.id === this.targetProjectId ? AppTheme.selected : Color.Transparent).borderRadius(12).enabled(project.capability === 'control').onClick(() => { this.targetProjectId = project.id; })
         }, (project: ProjectItem) => JSON.stringify([project.id, project.name, project.capability])) }.width('100%') }.width('100%').constraintSize({ maxHeight: 360 }).scrollBar(BarState.Off)
       } else {
-        Text(this.editingThread?.pinned ? '移动到区段后会取消固定。' : '会话将显示在所选区段中。').fontSize(12).fontColor(AppTheme.secondary).width('100%')
+        Text(this.panel === 'projectSection' ? '手机立即更新。完全退出桌面应用后，待侧栏提示已同步，再重新打开桌面即可生效。' : this.editingThread?.pinned ? '移动到分区后会取消固定。' : '会话将显示在所选分区中。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
         Scroll() { Column({ space: 2 }) {
-          Button('不分区段').id('move-section-none').height(48).width('100%').fontSize(14).fontColor(AppTheme.text).backgroundColor(this.targetSectionId === '' ? AppTheme.selected : Color.Transparent).borderRadius(12).onClick(() => { this.targetSectionId = ''; })
+          Button('不分区').id('move-section-none').height(48).width('100%').fontSize(14).fontColor(AppTheme.text).backgroundColor(this.targetSectionId === '' ? AppTheme.selected : Color.Transparent).borderRadius(12).onClick(() => { this.targetSectionId = ''; })
           ForEach(this.sections(), (section: NavigationSection) => { Button() { Row() { Text(section.name).fontSize(14).fontColor(AppTheme.text).layoutWeight(1); if (this.targetSectionId === section.id) { SymbolGlyph($r('sys.symbol.checkmark')).fontSize(16).fontColor([AppTheme.accent]) } }.padding({ left: 12, right: 12 }).height(48).width('100%') }.id('move-section-' + section.id).type(ButtonType.Normal).height(48).width('100%').backgroundColor(this.targetSectionId === section.id ? AppTheme.selected : Color.Transparent).borderRadius(12).onClick(() => { this.targetSectionId = section.id; }) }, (section: NavigationSection) => JSON.stringify([section.id, section.name]))
         }.width('100%') }.width('100%').constraintSize({ maxHeight: 360 }).scrollBar(BarState.Off)
       }
       if (this.error) { Text(this.error).fontSize(12).lineHeight(20).fontColor(AppTheme.error).width('100%') }
-      Button(this.panel === 'create' ? '创建并授权' : this.panel === 'rename' ? '保存名称' : '确认移动').id('thread-editor-save').height(44).width('100%').fontSize(14).fontColor(AppTheme.primaryText).backgroundColor(AppTheme.primary).borderRadius(14).enabled(!this.client.busy && (this.panel === 'rename' || this.panel === 'create' ? this.editName.trim().length > 0 : this.panel !== 'project' || this.targetProjectId !== this.editingThread?.projectId)).onClick(() => { this.savePanel(); })
-    }.id('thread-editor-' + (this.editingThread?.id || '')).padding({ left: 20, right: 20, top: 20, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
+      Button(this.panel === 'create' ? '创建并授权' : this.panel === 'rename' || this.panel === 'projectRename' ? '保存名称' : '确认移动').id('thread-editor-save').height(44).width('100%').fontSize(14).fontColor(AppTheme.primaryText).backgroundColor(AppTheme.primary).borderRadius(14).enabled(!this.client.busy && (this.panel === 'rename' || this.panel === 'projectRename' || this.panel === 'create' ? this.editName.trim().length > 0 : this.panel !== 'project' || this.targetProjectId !== this.editingThread?.projectId)).onClick(() => { this.savePanel(); })
+    }.id('thread-editor-' + (this.editingProject?.id || this.editingThread?.id || '')).padding({ left: 20, right: 20, top: 20, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
   }
   @Builder
   private ThreadRow(thread: NavigationThread, indented: boolean = true) {
@@ -97,7 +111,7 @@ export struct NavigationDrawer {
       }.padding({ left: indented ? 32 : 12, right: 12 }).height(44).width('100%')
     }.id('thread-' + thread.id).type(ButtonType.Normal).width('100%').height(44).borderRadius(12)
       .backgroundColor(thread.id === this.client.selectedThreadId ? AppTheme.subtle : Color.Transparent)
-      .priorityGesture(LongPressGesture({ duration: 450, repeat: false }).onAction(() => { this.contextThreadId = thread.id; }))
+      .priorityGesture(LongPressGesture({ duration: 450, repeat: false }).onAction(() => { this.contextProjectId = ''; this.contextThreadId = thread.id; }))
       .bindPopup(this.contextThreadId === thread.id, { builder: () => { this.ThreadMenu(thread); }, placement: Placement.BottomLeft, enableArrow: false, radius: 18, systemMaterial: AppTheme.material(this.client.reduceTransparency), popupColor: AppTheme.fallbackColor(this.client.reduceTransparency), backgroundBlurStyle: AppTheme.fallbackBlur(this.client.reduceTransparency), onStateChange: (event: PopupStateChangeParam) => { if (!event.isVisible && this.contextThreadId === thread.id) { this.contextThreadId = ''; } } })
       .enabled(this.client.authenticated).onClick(() => { if (this.client.busy || this.contextThreadId === thread.id) { return; } this.error = ''; this.client.openNavigationThread(thread).then(() => { this.search = ''; this.onNavigate('chat'); }).catch((e: Error) => { this.error = e.message.slice(0, 140); }); })
   }
@@ -111,7 +125,10 @@ export struct NavigationDrawer {
           if (project.capability === 'none') { Text('未授权').id('project-ungranted-' + project.id).fontSize(10).fontColor(AppTheme.muted) }
           SymbolGlyph(this.projectClosed(project) ? $r('sys.symbol.chevron_right') : $r('sys.symbol.chevron_down')).fontSize(13).fontColor([AppTheme.secondary])
         }.padding({ left: 12, right: 12 }).height(44).width('100%')
-      }.id('navigation-project-' + project.id).type(ButtonType.Normal).height(44).width('100%').backgroundColor(Color.Transparent).onClick(() => { this.toggle(project.id, this.projectClosed(project)); })
+      }.id('navigation-project-' + project.id).type(ButtonType.Normal).height(44).width('100%').backgroundColor(Color.Transparent)
+        .priorityGesture(LongPressGesture({ duration: 450, repeat: false }).onAction(() => { this.contextThreadId = ''; this.contextProjectId = project.id; }))
+        .bindPopup(this.contextProjectId === project.id, { builder: () => { this.ProjectMenu(project); }, placement: Placement.BottomLeft, enableArrow: false, radius: 18, systemMaterial: AppTheme.material(this.client.reduceTransparency), popupColor: AppTheme.fallbackColor(this.client.reduceTransparency), backgroundBlurStyle: AppTheme.fallbackBlur(this.client.reduceTransparency), onStateChange: (event: PopupStateChangeParam) => { if (!event.isVisible && this.contextProjectId === project.id) { this.contextProjectId = ''; } } })
+        .enabled(this.client.authenticated).onClick(() => { if (this.contextProjectId !== project.id) { this.toggle(project.id, this.projectClosed(project)); } })
       if (!this.projectClosed(project)) {
         ForEach(project.threads.filter((t: NavigationThread) => t.name.toLowerCase().includes(this.search.toLowerCase())), (t: NavigationThread) => { this.ThreadRow(t) }, (t: NavigationThread) => this.threadKey(t))
         if (project.threads.length === 0) { Text(project.capability === 'none' ? '在 Mac 上授权后查看会话' : '暂无会话').id('project-empty-' + project.id).fontSize(12).fontColor(AppTheme.secondary).padding({ left: 42, top: 8, bottom: 8 }).width('100%') }
@@ -120,7 +137,8 @@ export struct NavigationDrawer {
   }
   build() {
     Column({ space: 16 }) {
-      Row({ space: 4 }) {
+      Row({ space: 8 }) {
+        Image($r('app.media.yuanma_logo_transparent')).id('navigation-logo').width(34).height(34).objectFit(ImageFit.Contain).draggable(false).accessibilityLevel('no')
         Text('远码').id('navigation-brand').fontSize(20).fontWeight(FontWeight.Bold).fontColor(AppTheme.text).layoutWeight(1)
         Button() { SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(18).fontColor([AppTheme.secondary]) }
           .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('刷新 Mac 导航')
@@ -134,6 +152,11 @@ export struct NavigationDrawer {
           .enabled(!this.client.busy).onClick(() => { this.newChat().catch((e: Error) => { this.error = e.message; }); })
       }.width('100%')
       if (this.error) { Text(this.error).fontSize(12).fontColor(AppTheme.warningText).width('100%') }
+      if (this.client.navigation?.desktopSync?.pending) {
+        Text(this.client.navigation.desktopSync.error || '桌面有待同步变更：请完全退出桌面应用，稍后刷新此处；显示已同步后再重新打开桌面。').id('desktop-sync-pending').fontSize(12).lineHeight(18).fontColor(AppTheme.warningText).width('100%')
+      } else if (this.client.navigation?.desktopSync?.appliedAt) {
+        Text('已同步到桌面，重新打开桌面应用后生效。').id('desktop-sync-complete').fontSize(12).lineHeight(18).fontColor(AppTheme.secondary).width('100%')
+      }
       Scroll() {
         Column({ space: 14 }) {
           if (this.search.length > 0) {
