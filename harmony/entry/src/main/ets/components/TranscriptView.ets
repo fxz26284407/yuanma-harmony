@@ -74,13 +74,12 @@ export struct TranscriptView {
         } else {
           ForEach(group.items, (message: MessageView) => {
             Row() {
-              if (message.role === 'user') { Blank().width('10%') }
               Column({ space: 6 }) {
                 if (message.question) { QuestionCard({ client: this.client, request: message.question, inline: true }) } else if (message.role === 'user' && message.text) { Text(message.text.trimEnd()).fontSize(14).lineHeight(20).fontColor(AppTheme.text).copyOption(CopyOptions.LocalDevice) } else if (message.role !== 'user' && message.text) { MarkdownBody({ text: message.text }) }
                 if (message.images.length > 0) { this.Images(message) }
                 if (message.hasMore) { this.ReadLink(message) }
-              }.padding(message.role === 'user' ? 12 : 0).layoutWeight(1).borderRadius(20).alignItems(HorizontalAlign.Start).backgroundColor(message.role === 'user' ? AppTheme.bubble : Color.Transparent)
-            }.id('message-' + message.id).width('100%')
+              }.padding(message.role === 'user' ? 12 : 0).width(message.role === 'user' ? (message.images.length > 0 ? '90%' : LayoutPolicy.wrapContent) : '100%').constraintSize({ maxWidth: message.role === 'user' ? '90%' : '100%' }).borderRadius(20).alignItems(HorizontalAlign.Start).backgroundColor(message.role === 'user' ? AppTheme.bubble : Color.Transparent)
+            }.id('message-' + message.id).width('100%').justifyContent(FlexAlign.End)
           }, (m: MessageView) => m.id)
         }
       }, (g: TranscriptGroup) => JSON.stringify(g))
