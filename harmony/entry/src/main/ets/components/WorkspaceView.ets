@@ -28,7 +28,6 @@ export struct WorkspaceView {
   @State private renameThread: NavigationThread | undefined = undefined;
   @State private renameText: string = '';
   @State private showThreadRename: boolean = false;
-  @State private mentionVersion: number = 0;
   @State private showPermissions: boolean = false;
   @State private showProjects: boolean = false;
   @State private workTab: number = 0;
@@ -109,7 +108,7 @@ export struct WorkspaceView {
         if (this.page === 'chat' || this.page === 'projects' || this.page === 'threads') { Text(this.client.selectedThreadName || (this.client.authenticated ? '已连接 Mac' : this.client.status)).fontSize(11).fontColor(AppTheme.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }) }
       }.layoutWeight(1).alignItems(HorizontalAlign.Center).constraintSize({ minHeight: 44 }).id('project-selector').accessibilityText('选择' + this.client.containerName + '或最近会话').onClick(() => { if (this.page === 'chat' && this.client.authenticated) { this.showProjects = true; this.client.refreshNavigation().catch((e: Error) => { this.errorText = this.safeError(e); }); } })
       AgentSwitcher({ client: this.client,
-        onChanging: () => { this.sidebarOpen = false; this.threadSearch = ''; this.workTab = 0; this.activeRequestId = ''; this.quickContextId = ''; this.showThreadRename = false; this.renameThread = undefined; this.mentionVersion = 0; this.showConnectionInfo = false; this.showProjects = false; this.showPermissions = false; this.showRequest = false; this.material = ''; this.showPairMaterial = false; this.errorText = ''; this.changePage('connect'); },
+        onChanging: () => { this.sidebarOpen = false; this.threadSearch = ''; this.workTab = 0; this.activeRequestId = ''; this.quickContextId = ''; this.showThreadRename = false; this.renameThread = undefined; this.showConnectionInfo = false; this.showProjects = false; this.showPermissions = false; this.showRequest = false; this.material = ''; this.showPairMaterial = false; this.errorText = ''; this.changePage('connect'); },
         onChanged: () => { this.changePage(this.client.authenticated ? 'chat' : 'connect'); if (this.client.authenticated && !this.client.selectedProjectId) { this.showProjects = true; } },
         onError: (error: Error) => { this.errorText = this.safeError(error); }
       })
@@ -336,11 +335,15 @@ export struct WorkspaceView {
         if (this.client.attachments.length > 0) {
           Scroll() { Row({ space: 8 }) { ForEach(this.client.attachments, (item: DraftImage) => {
             Stack({ alignContent: Alignment.BottomStart }) {
+              if (item.name) {
+                Column({ space: 5 }) { Text('文件').fontSize(11).fontColor(AppTheme.secondary); Text(item.name).fontSize(12).fontColor(AppTheme.text).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }); Text(Math.ceil(item.size / 1024) + ' KB').fontSize(10).fontColor(AppTheme.secondary) }.width(80).height(80).padding(6).justifyContent(FlexAlign.Center).backgroundColor(AppTheme.codeSurface).borderRadius(10).accessibilityText('待发送文件：' + item.name)
+              } else {
               Button() { Image(item.uri).width(80).height(80).objectFit(ImageFit.Cover).borderRadius(10).border({ width: 0.6, color: AppTheme.subtle }) }.id('draft-image-' + item.id).type(ButtonType.Normal).width(80).height(80).padding(0).backgroundColor(AppTheme.codeSurface).borderRadius(10).accessibilityText('预览待发送图片').onClick(() => { this.client.imageUri = item.uri; this.client.imageLabel = '待发送图片'; this.client.imageLoading = false; this.changePage('image'); })
-              Button() { Stack() { Circle().fill(AppTheme.text).width(22).height(22); SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([AppTheme.contentSurface]) } }.id('remove-draft-image-' + item.id).type(ButtonType.Normal).width(44).height(44).padding(0).position({ x: 58, y: 0 }).backgroundColor(Color.Transparent).accessibilityText('移除这张待发送图片').enabled(!this.client.busy).onClick(() => { this.client.removeImage(item.id).catch((e: Error) => { this.errorText = this.safeError(e); }); })
+              }
+              Button() { Stack() { Circle().fill(AppTheme.text).width(22).height(22); SymbolGlyph($r('sys.symbol.xmark')).fontSize(11).fontColor([AppTheme.contentSurface]) } }.id('remove-draft-image-' + item.id).type(ButtonType.Normal).width(44).height(44).padding(0).position({ x: 58, y: 0 }).backgroundColor(Color.Transparent).accessibilityText(item.name ? '移除文件：' + item.name : '移除这张待发送图片').enabled(!this.client.busy).onClick(() => { this.client.removeImage(item.id).catch((e: Error) => { this.errorText = this.safeError(e); }); })
             }.width(96).height(96)
           }, (item: DraftImage) => item.id) }.constraintSize({ minWidth: '100%' }).justifyContent(FlexAlign.Start) }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).height(96).width('100%').align(Alignment.Start)
-          if (this.client.uploadProgress >= 0) { Text('正在上传图片 · ' + this.client.uploadProgress + '%').fontSize(11).fontColor(AppTheme.secondary).width('100%') }
+          if (this.client.uploadProgress >= 0) { Text('正在上传附件 · ' + this.client.uploadProgress + '%').fontSize(11).fontColor(AppTheme.secondary).width('100%') }
         }
         if (this.client.capabilities.permissions && this.client.permissionNotice) {
           Button() { Row({ space: 8 }) { Text(this.client.permissionNotice).fontSize(12).lineHeight(18).fontColor(AppTheme.warningText).layoutWeight(1); Text('设置权限').fontSize(12).fontColor(AppTheme.text) }.width('100%') }
@@ -351,18 +354,18 @@ export struct WorkspaceView {
         TextArea({ text: this.client.draft, placeholder: this.client.projects.some((p: ProjectItem) => p.id === this.client.selectedProjectId && p.capability === 'read') ? '只读项目 · 可保留草稿' : this.client.showSuggestion ? this.client.suggestionText : '与 ' + this.client.agentName + ' 协作' }).id('composer-draft').onChange((value: string) => { this.client.updateDraft(value).catch(() => { this.errorText = '草稿保存失败，请保留输入内容'; }); })
           .height(48).fontSize(14).fontStyle(FontStyle.Normal).lineHeight(20).placeholderFont({ size: 14, style: this.client.showSuggestion ? FontStyle.Italic : FontStyle.Normal }).fontColor(AppTheme.text).placeholderColor(this.client.showSuggestion ? AppTheme.suggestionInk : AppTheme.secondary).backgroundColor(Color.Transparent).padding({ left: 6, right: this.client.showSuggestion ? 54 : 6, top: 4, bottom: 4 })
           if (this.client.capabilities.extensions) {
-          MentionControls({ client: this.client, openVersion: this.mentionVersion, draft: this.client.draft, catalogScope: this.client.fingerprint + ':' + this.client.selectedProjectId + ':' + this.client.selectedThreadId + ':' + this.client.connectionVersion + ':' + this.client.busy }).position({ x: 0, y: 0 })
+          MentionControls({ client: this.client, draft: this.client.draft, catalogScope: this.client.fingerprint + ':' + this.client.selectedProjectId + ':' + this.client.selectedThreadId + ':' + this.client.connectionVersion + ':' + this.client.busy }).position({ x: 0, y: 0 })
           }
-          if (this.client.showSuggestion) { Row() { Blank().layoutWeight(1); Button('采用').id('accept-suggestion').width(44).height(44).padding(0).fontSize(11).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).accessibilityText('采用 CLI 建议并填入草稿').enabled(!this.client.busy).onClick(() => { this.client.acceptSuggestion().catch((e: Error) => { this.errorText = this.safeError(e); }); }) }.width('100%').height(48).hitTestBehavior(HitTestMode.Transparent) }
+          if (this.client.showSuggestion) { Row() { Blank().layoutWeight(1); Button('采用').id('accept-suggestion').width(44).height(44).padding(0).fontSize(11).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).accessibilityText('采用下一步建议并填入草稿').enabled(!this.client.busy).onClick(() => { this.client.acceptSuggestion().catch((e: Error) => { this.errorText = this.safeError(e); }); }) }.width('100%').height(48).hitTestBehavior(HitTestMode.Transparent) }
         }.height(48).width('100%')
-        if (this.client.capabilities.suggestions && this.client.nextSuggestionEnabled && this.client.selectedThreadId && !this.client.currentTurnId && !this.client.hasDraftContent && this.client.canExecute && (this.client.suggestionState === 'generating' || this.client.suggestionState === 'unavailable')) { Text(this.client.suggestionState === 'generating' ? 'CLI 正在准备下一步建议…' : 'CLI 暂未提供建议').id('prediction-status').fontSize(10).fontColor(AppTheme.muted).padding({ left: 6 }).width('100%') }
+        if (this.client.capabilities.suggestions && this.client.nextSuggestionEnabled && this.client.selectedThreadId && !this.client.currentTurnId && !this.client.hasDraftContent && this.client.canExecute && (this.client.suggestionState === 'generating' || this.client.suggestionState === 'unavailable')) { Text(this.client.suggestionState === 'generating' ? '正在准备下一步建议…' : '暂未提供下一步建议').id('prediction-status').fontSize(10).fontColor(AppTheme.muted).padding({ left: 6 }).width('100%') }
         Row() {
           Row({ space: 2 }) {
           if (this.client.capabilities.images) {
-          Button() { SymbolGlyph($r('sys.symbol.ohos_photo')).fontSize(20).fontColor([AppTheme.secondary]) }.id('attach-image').width(44).height(44).padding(0).backgroundColor(Color.Transparent).accessibilityText('从相册添加图片').enabled(this.client.canExecute && !this.client.busy && this.client.attachments.length < 4).onClick(() => { this.errorText = ''; this.client.pickImages().catch((e: Error) => { this.errorText = this.safeError(e); }); })
+          Button() { SymbolGlyph($r('sys.symbol.ohos_photo')).fontSize(20).fontColor([AppTheme.secondary]) }.id('attach-image').width(44).height(44).padding(0).backgroundColor(Color.Transparent).accessibilityText('从相册添加图片').enabled(this.client.canExecute && !this.client.busy && this.client.attachments.length < this.client.uploadLimits.maxAttachments).onClick(() => { this.errorText = ''; this.client.pickImages().catch((e: Error) => { this.errorText = this.safeError(e); }); })
           }
-          if (this.client.capabilities.extensions) {
-            Button('@').id('open-extensions').height(44).width(44).padding(0).fontSize(20).fontColor(AppTheme.secondary).backgroundColor(Color.Transparent).accessibilityText('选择技能和插件').enabled(this.client.canExecute && !this.client.busy).onClick(() => { this.mentionVersion++; })
+          if (this.client.capabilities.files) {
+          Button() { SymbolGlyph($r('sys.symbol.doc_text')).fontSize(20).fontColor([AppTheme.secondary]) }.id('attach-file').width(44).height(44).padding(0).backgroundColor(Color.Transparent).accessibilityText('添加文档或文本文件').enabled(this.client.canExecute && !this.client.busy && this.client.attachments.length < this.client.uploadLimits.maxAttachments).onClick(() => { this.errorText = ''; this.client.pickFiles().catch((e: Error) => { this.errorText = this.safeError(e); }); })
           }
           if (this.client.capabilities.permissions) {
           Button() { SymbolGlyph($r('sys.symbol.checkmark_shield')).fontSize(18).fontColor([this.client.permissionConfirmation(this.client.permissionMode) ? AppTheme.warning : AppTheme.secondary]) }.id('permission-selector').height(44).width(44).padding(0).accessibilityText('执行策略：' + this.client.permissionLabel).backgroundColor(Color.Transparent).enabled(this.client.authenticated && !this.client.requiresWorkspaceThread).onClick(() => { this.showPermissions = true; })

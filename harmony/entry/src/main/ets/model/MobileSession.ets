@@ -1,6 +1,6 @@
 import { PendingThreadCreation, AgentSelection, CreateProjectBody, ProjectManagementRequest } from './UiTypes';
 import { connection } from '@kit.NetworkKit';
-import { fileIo, fileUri } from '@kit.CoreFileKit';
+import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { image } from '@kit.ImageKit';
 import { SuggestionView, SuggestionBody, ChangeSummary, DiffChunk, DraftImage, ImageUploadBody, ImageUploadResult, RemoveImagesBody, ThreadManagementRequest, ThreadManagementBody, ThreadManagementResult } from './UiTypes';
@@ -82,6 +82,7 @@ export class MobileSession extends UiState {
     await this.identity.initialize(context);
     this.nextSuggestionEnabled = (await this.identity.get('nextSuggestionEnabled')) !== 'false';
     this.attachmentRoot = context.filesDir + '/codex-attachments'; if (!fileIo.accessSync(this.attachmentRoot)) { fileIo.mkdirSync(this.attachmentRoot); }
+    fileIo.listFileSync(this.attachmentRoot).forEach((name: string) => { if (/^pending-[A-Za-z0-9_-]{22}\.file$/.test(name)) { fileIo.unlinkSync(this.attachmentRoot + '/' + name); } });
     try { this.imageRoot = context.cacheDir + '/codex-media'; if (!fileIo.accessSync(this.imageRoot)) { fileIo.mkdirSync(this.imageRoot); } fileIo.listFileSync(this.imageRoot).forEach((name: string) => { if (/^(ext-)?[a-f0-9]{64}\.(png|jpg|gif|webp|svg)$/.test(name)) { fileIo.unlinkSync(this.imageRoot + '/' + name); } }); } catch (_) { this.imageRoot = ''; }
     const display: string = await this.identity.get('displaySettings'); if (display) { const value = JSON.parse(display) as DisplaySettings; this.reduceTransparency = value.reduceTransparency === true; this.reduceMotion = value.reduceMotion === true; this.appearance = value.appearance === 'light' ? 'light' : 'dark'; }
     this.applyAppearance();
@@ -215,6 +216,9 @@ export class MobileSession extends UiState {
     const kind: string = status.backendKind || 'codex';
     if (kind !== this.selectedAgent) { const error = new Error('当前 Mac 网关尚未提供 ' + this.agentName + '，请更新 Mac 网关后重连，无需重新扫码'); error.name = 'BackendMismatchError'; throw error; }
     this.backendKind = kind;
+    const limits = status.uploadLimits;
+    this.uploadLimits = { fileBytes: this.uploadLimit(limits?.fileBytes, 52428800, 8388608), imageBytes: this.uploadLimit(limits?.imageBytes, 8388608, 8388608), messageBytes: this.uploadLimit(limits?.messageBytes, 104857600, 8388608), maxAttachments: this.uploadLimit(limits?.maxAttachments, 4, 4), chunkBytes: this.uploadLimit(limits?.chunkBytes, 131072, 131072) };
+
     // The pre-capability protocol was Codex-only. Unknown named backends fail closed.
     const legacy: boolean = !status.backendKind;
     this.capabilities = status.capabilities || { modelSettings: legacy, permissions: legacy, suggestions: legacy, steer: legacy, images: legacy, extensions: legacy, changes: legacy };
@@ -222,8 +226,9 @@ export class MobileSession extends UiState {
     this.status = '已连接 Mac'; this.detail = status.backendReady ? '安全连接已恢复' : 'Mac 已连接，智能体后端暂未就绪';
     this.recovering = false; this.recoveryIssue = ''; this.retryDelay = 500; clearTimeout(this.retryTimer); this.connectionVersion++;
   }
+  private uploadLimit(value: number | undefined, maximum: number, fallback: number): number { return value !== undefined && Number.isSafeInteger(value) && value > 0 ? Math.min(value, maximum) : fallback; }
   private checkGeneration(generation: number): void { if (generation !== this.generation) { const error = new Error('已取消旧连接操作'); error.name = 'LinkError'; throw error; } }
-  private clearConnection(): void { this.models = []; this.backendKind = ''; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
+  private clearConnection(): void { this.models = []; this.backendKind = ''; this.uploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 }; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
   private connectionLost(reason: string = 'transport'): void {
     console.info('CM_CONNECTION reset reason=' + reason);
     this.generation++; this.rpc.close(); this.clearConnection();
@@ -282,7 +287,7 @@ export class MobileSession extends UiState {
     return `Bearer ${this.token}`;
   }
   async send(projectId: string, threadId: string, content: string): Promise<void> {
-    if (this.busy || (content.trim().length === 0 && this.references.length === 0 && this.attachments.length === 0)) { throw new Error('请输入指令或选择图片，并等待上一操作完成'); }
+    if (this.busy || (content.trim().length === 0 && this.references.length === 0 && this.attachments.length === 0)) { throw new Error('请输入指令或添加附件，并等待上一操作完成'); }
     if (!this.projects.some((p: ProjectItem) => p.id === projectId && p.capability === 'control')) { throw new Error('该项目仅允许阅读，请在 Mac 调整设备授权'); }
     if (this.pendingSend !== undefined && (!threadId || this.pendingSend.projectId !== projectId || this.pendingSend.threadId !== threadId)) { throw new Error('上一条发送结果未知，请先恢复原会话核对'); }
     this.busy = true;
@@ -290,6 +295,7 @@ export class MobileSession extends UiState {
     const selectedReferences: string[] = this.references.map((r: ExtensionItem) => r.id);
     const selectedImages: DraftImage[] = [...this.attachments];
     try {
+      this.checkAttachments(selectedImages);
       if (!threadId) {
         const body: CreateThreadBody = { projectId: projectId, model: this.selectedModel || undefined, effort: this.selectedEffort || undefined, serviceTier: this.selectedServiceTier || null, approvalMode: this.permissionMode, confirmFullAccess: this.fullAccessConfirmed };
         const thread = await this.rpc.request<ThreadItem>('POST', '/v1/threads', body, this.authorization());
@@ -304,7 +310,7 @@ export class MobileSession extends UiState {
       const id: string = this.pendingSend !== undefined ? this.pendingSend.id : encode(cryptoFramework.createRandom().generateRandomSync(16).data.slice().buffer as ArrayBuffer);
       this.pendingSend = { draftKey: sourceDraftKey, id: id, projectId: projectId, threadId: threadId, hash: hash };
       await this.identity.put(this.pendingKey(), JSON.stringify(this.pendingSend));
-      const body: SendBody = { type: 'message.send', clientMessageId: id, projectId: projectId, threadId: threadId, payload: { text: content, references: selectedReferences, images: selectedImages.map((item: DraftImage) => item.id) } };
+      const body: SendBody = { type: 'message.send', clientMessageId: id, projectId: projectId, threadId: threadId, payload: { text: content, references: selectedReferences, images: selectedImages.filter((item: DraftImage) => !item.name).map((item: DraftImage) => item.id), files: selectedImages.filter((item: DraftImage) => !!item.name).map((item: DraftImage) => item.id) } };
       try {
         const result = await this.rpc.request<QueuedMessage>('POST', '/v1/commands', body, this.authorization());
         this.lastSubmissionId = result.id; this.lastMessageState = result.state; this.lastPendingText = content;
@@ -313,7 +319,7 @@ export class MobileSession extends UiState {
         this.detail = '网关已接收，执行状态以后端事实为准';
       } catch (error) {
         const failed = error as Error;
-        if ((failed.name === 'LinkError' && failed.message.includes('未发送')) || (failed instanceof RemoteError && ['PROJECT_FORBIDDEN', 'THREAD_MISMATCH', 'UNSAFE_THREAD', 'PAYLOAD_TOO_LARGE', 'QUEUE_FULL', 'AUTH_REQUIRED', 'AUTH_DENIED', 'INVALID_REFERENCES', 'REFERENCE_UNAVAILABLE', 'INVALID_IMAGES', 'IMAGE_NOT_READY'].includes(failed.code))) {
+        if ((failed.name === 'LinkError' && failed.message.includes('未发送')) || (failed instanceof RemoteError && ['PROJECT_FORBIDDEN', 'THREAD_MISMATCH', 'UNSAFE_THREAD', 'PAYLOAD_TOO_LARGE', 'QUEUE_FULL', 'AUTH_REQUIRED', 'AUTH_DENIED', 'INVALID_REFERENCES', 'REFERENCE_UNAVAILABLE', 'INVALID_IMAGES', 'IMAGE_NOT_READY', 'INVALID_FILES', 'UNSUPPORTED_COMMAND', 'UPLOAD_LIMIT'].includes(failed.code))) {
           await this.identity.put(this.pendingKey(), ''); this.pendingSend = undefined; this.lastMessageState = 'failed';
         } else { this.lastMessageState = 'unknown'; }
         throw failed;
@@ -513,14 +519,69 @@ export class MobileSession extends UiState {
   async pickImages(): Promise<void> {
     if (!this.capabilities.images) { return; }
     if (this.busy || !this.canControlProject) { throw new Error('请先选择可执行项目，并等待当前操作完成'); }
-    if (this.attachments.length >= 4) { throw new Error('每条消息最多发送 4 张图片'); }
+    if (this.attachments.length >= this.uploadLimits.maxAttachments) { throw new Error('每条消息最多添加 4 个附件'); }
     if (!this.attachmentRoot) { throw new Error('图片存储尚未就绪'); }
     this.busy = true;
     try {
-      const options = new photoAccessHelper.PhotoSelectOptions(); options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE; options.maxSelectNumber = 4 - this.attachments.length;
+      const options = new photoAccessHelper.PhotoSelectOptions(); options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE; options.maxSelectNumber = this.uploadLimits.maxAttachments - this.attachments.length;
       const result = await new photoAccessHelper.PhotoViewPicker().select(options);
-      for (const uri of result.photoUris.slice(0, options.maxSelectNumber)) { const item = await this.prepareImage(uri); if (this.attachments.reduce((n: number, current: DraftImage) => n + current.size, 0) + item.size > 8388608) { this.deleteImageFile(item); throw new Error('每条消息的图片合计不能超过 8 MiB，请减少图片'); } this.attachments = [...this.attachments, item]; await this.saveImages(); }
+      for (const uri of result.photoUris.slice(0, options.maxSelectNumber)) { const item = await this.prepareImage(uri); try { this.checkAttachments([...this.attachments, item]); } catch (error) { this.deleteImageFile(item); throw error as Error; } this.attachments = [...this.attachments, item]; await this.saveImages(); }
     } finally { this.busy = false; }
+  }
+  async pickFiles(): Promise<void> {
+    if (!this.capabilities.files) { throw new Error('请先更新 Mac 网关以支持文件上传'); }
+    if (this.busy || !this.canControlProject) { throw new Error('请先选择可执行项目，并等待当前操作完成'); }
+    if (this.attachments.length >= this.uploadLimits.maxAttachments) { throw new Error('每条消息最多添加 4 个附件'); }
+    if (!this.attachmentRoot || !this.appearanceContext) { throw new Error('文件存储尚未就绪'); }
+    this.busy = true;
+    try {
+      const options = new picker.DocumentSelectOptions(); options.maxSelectNumber = this.uploadLimits.maxAttachments - this.attachments.length;
+      options.fileSuffixFilters = ['文档|.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf', '文本|.txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.yaml,.yml,.xml,.html,.htm,.log,.sql,.ini,.toml'];
+      const uris: string[] = await new picker.DocumentViewPicker(this.appearanceContext).select(options);
+      for (const uri of uris.slice(0, options.maxSelectNumber)) {
+        const item = await this.prepareFile(uri);
+        try { this.checkAttachments([...this.attachments, item]); } catch (error) { this.deleteImageFile(item); throw error as Error; }
+        this.attachments = [...this.attachments, item]; await this.saveImages();
+      }
+    } finally { this.busy = false; }
+  }
+  private checkAttachments(items: DraftImage[]): void {
+    if (items.length > this.uploadLimits.maxAttachments) { throw new Error('每条消息最多添加 ' + this.uploadLimits.maxAttachments + ' 个附件'); }
+    if (items.reduce((n: number, item: DraftImage) => n + item.size, 0) > this.uploadLimits.messageBytes) { throw new Error('每条消息的附件合计不能超过 ' + Math.floor(this.uploadLimits.messageBytes / 1048576) + ' MiB'); }
+    if (items.filter((item: DraftImage) => !item.name).reduce((n: number, item: DraftImage) => n + item.size, 0) > this.uploadLimits.imageBytes) { throw new Error('每条消息的图片合计不能超过 ' + Math.floor(this.uploadLimits.imageBytes / 1048576) + ' MiB'); }
+    for (const item of items) { const maximum: number = item.name ? this.uploadLimits.fileBytes : this.uploadLimits.imageBytes; if (!Number.isSafeInteger(item.size) || item.size <= 0 || item.size > maximum) { throw new Error((item.name || '图片') + ' 不能超过 ' + Math.floor(maximum / 1048576) + ' MiB'); } }
+  }
+  private async prepareFile(uri: string): Promise<DraftImage> {
+    const name: string = new fileUri.FileUri(uri).name;
+    if (utf8(name).byteLength > 180 || /[\\/\x00-\x1f\x7f]/.test(name) || name.startsWith('.') || !/\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf|txt|md|markdown|csv|tsv|json|jsonl|ya?ml|xml|html?|log|sql|ini|toml)$/i.test(name)) { throw new Error('请选择 PDF、Office 文档或常见文本文件，文件名不能过长'); }
+    const file = await fileIo.open(uri, fileIo.OpenMode.READ_ONLY);
+    let temporary: string = '';
+    try {
+      const size: number = (await fileIo.stat(file.fd)).size;
+      if (!Number.isSafeInteger(size) || size <= 0 || size > this.uploadLimits.fileBytes) { throw new Error('文件不能为空且不能超过 ' + Math.floor(this.uploadLimits.fileBytes / 1048576) + ' MiB'); }
+      if (this.attachments.reduce((n: number, item: DraftImage) => n + item.size, 0) + size > this.uploadLimits.messageBytes) { throw new Error('每条消息的附件合计不能超过 ' + Math.floor(this.uploadLimits.messageBytes / 1048576) + ' MiB'); }
+      const nonce: string = encode(cryptoFramework.createRandom().generateRandomSync(16).data.slice().buffer as ArrayBuffer);
+      temporary = this.attachmentRoot + '/pending-' + nonce + '.file';
+      if (fileIo.accessSync(temporary)) { temporary = ''; throw new Error('文件暂存名称冲突，请重试'); }
+      const md = cryptoFramework.createMd('SHA256');
+      const output = await fileIo.open(temporary, fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC | fileIo.OpenMode.NOFOLLOW | fileIo.OpenMode.WRITE_ONLY);
+      try {
+        let read: number = 0;
+        while (read < size) {
+          const chunk = new ArrayBuffer(Math.min(131072, size - read)); const count: number = await fileIo.read(file.fd, chunk);
+          if (count <= 0 || count > chunk.byteLength) { throw new Error('文件读取不完整，请重新选择'); }
+          await md.update({ data: new Uint8Array(chunk, 0, count) });
+          let written: number = 0;
+          while (written < count) { const n: number = await fileIo.write(output.fd, chunk.slice(written, count)); if (n <= 0 || n > count - written) { throw new Error('文件保存失败'); } written += n; }
+          read += count;
+        }
+        if ((await fileIo.stat(file.fd)).size !== size) { throw new Error('文件已变化，请重新选择'); }
+        await fileIo.fsync(output.fd);
+      } finally { await fileIo.close(output); }
+      const id: string = hex((await md.digest()).data.slice().buffer as ArrayBuffer) + '_' + nonce;
+      const path: string = this.attachmentRoot + '/' + id + '.file'; await fileIo.rename(temporary, path); temporary = '';
+      return { id: id, path: path, uri: fileUri.getUriFromPath(path), size: size, mime: 'application/octet-stream', name: name };
+    } finally { try { await fileIo.close(file); } finally { if (temporary) { try { fileIo.unlinkSync(temporary); } catch (_) {} } } }
   }
   private async prepareImage(uri: string): Promise<DraftImage> {
     const file = await fileIo.open(uri, fileIo.OpenMode.READ_ONLY);
@@ -545,24 +606,26 @@ export class MobileSession extends UiState {
     if (this.busy || (this.pendingSend && this.pendingSend.threadId === this.selectedThreadId && this.pendingSend.projectId === this.selectedProjectId)) { throw new Error('请先等待发送结果确认'); }
     const removed = this.attachments.find((item: DraftImage) => item.id === id); if (!removed) { return; }
     this.attachments = this.attachments.filter((item: DraftImage) => item.id !== id); await this.saveImages(); this.deleteImageFile(removed);
-    if (this.authenticated) { const body: RemoveImagesBody = { projectId: this.selectedProjectId, images: [id] }; this.rpc.request<Object>('POST', '/v1/images/remove', body, this.authorization()).catch(() => {}); }
+    if (this.authenticated) { const body: RemoveImagesBody = { projectId: this.selectedProjectId, images: [id] }; this.rpc.request<Object>('POST', removed.name ? '/v1/files/remove' : '/v1/images/remove', body, this.authorization()).catch(() => {}); }
   }
-  private deleteImageFile(item: DraftImage): void { if (this.attachmentRoot && /^[a-f0-9]{64}_[A-Za-z0-9_-]{22}$/.test(item.id) && item.path === this.attachmentRoot + '/' + item.id + '.jpg') { try { fileIo.unlinkSync(item.path); } catch (_) {} } }
+  private deleteImageFile(item: DraftImage): void { if (this.attachmentRoot && /^[a-f0-9]{64}_[A-Za-z0-9_-]{22}$/.test(item.id) && item.path === this.attachmentRoot + '/' + item.id + (item.name ? '.file' : '.jpg')) { try { fileIo.unlinkSync(item.path); } catch (_) {} } }
   private async uploadImages(project: string, items: DraftImage[]): Promise<void> {
     if (!items.length) { return; } this.uploadProgress = 0;
     const total: number = items.reduce((n: number, item: DraftImage) => n + item.size, 0); let completed: number = 0;
     for (const item of items) {
-      if (!this.attachmentRoot || !/^[a-f0-9]{64}_[A-Za-z0-9_-]{22}$/.test(item.id) || item.path !== this.attachmentRoot + '/' + item.id + '.jpg' || item.size <= 0 || item.size > 8388608) { throw new Error('待发送图片无效，请重新选择'); }
+      if (!this.attachmentRoot || !/^[a-f0-9]{64}_[A-Za-z0-9_-]{22}$/.test(item.id) || item.path !== this.attachmentRoot + '/' + item.id + (item.name ? '.file' : '.jpg') || item.size <= 0 || item.size > (item.name ? this.uploadLimits.fileBytes : this.uploadLimits.imageBytes)) { throw new Error('待发送附件无效，请重新选择'); }
       const file = await fileIo.open(item.path, fileIo.OpenMode.READ_ONLY);
       try {
-        if ((await fileIo.stat(file.fd)).size !== item.size) { throw new Error('待发送图片已变化，请重新选择'); }
+        if ((await fileIo.stat(file.fd)).size !== item.size) { throw new Error('待发送附件已变化，请重新选择'); }
         let offset: number = 0;
         while (offset < item.size) {
-          fileIo.lseek(file.fd, offset, fileIo.WhenceType.SEEK_SET); const bytes = new ArrayBuffer(Math.min(131072, item.size - offset)); const count: number = await fileIo.read(file.fd, bytes);
-          if (count !== bytes.byteLength) { throw new Error('图片读取不完整，请重新选择'); }
-          const body: ImageUploadBody = { projectId: project, imageId: item.id, offset: offset, totalBytes: item.size, mime: item.mime, data: encode(bytes) };
-          const result = await this.rpc.request<ImageUploadResult>('POST', '/v1/images/upload', body, this.authorization());
-          if (result.imageId !== item.id || !Number.isInteger(result.nextOffset) || result.nextOffset < offset + count || result.nextOffset > item.size) { throw new Error('图片上传回执无效，请重试'); }
+          fileIo.lseek(file.fd, offset, fileIo.WhenceType.SEEK_SET); const bytes = new ArrayBuffer(Math.min(this.uploadLimits.chunkBytes, item.size - offset)); const count: number = await fileIo.read(file.fd, bytes);
+          if (count !== bytes.byteLength) { throw new Error('附件读取不完整，请重新选择'); }
+          const body: ImageUploadBody = { projectId: project, imageId: item.id, offset: offset, totalBytes: item.size, mime: item.mime, name: item.name, data: encode(bytes) };
+          let result: ImageUploadResult;
+          try { result = await this.rpc.request<ImageUploadResult>('POST', item.name ? '/v1/files/upload' : '/v1/images/upload', body, this.authorization()); }
+          catch (error) { const failed = error as Error; if (failed instanceof RemoteError && failed.code === 'RATE_LIMITED') { this.detail = '正在等待上传额度恢复，草稿已保留'; await new Promise<void>((resolve) => { setTimeout(resolve, 60000); }); continue; } throw failed; }
+          if (result.imageId !== item.id || !Number.isInteger(result.nextOffset) || result.nextOffset < offset + count || result.nextOffset > item.size) { throw new Error('附件上传回执无效，请重试'); }
           offset = result.nextOffset; this.uploadProgress = Math.round((completed + offset) * 100 / total);
         }
       } finally { await fileIo.close(file); }

@@ -1,4 +1,4 @@
-import { BackendCapabilities, ThreadAction, PermissionOption, ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest, ProjectManagementRequest } from './UiTypes';
+import { UploadLimits, BackendCapabilities, ThreadAction, PermissionOption, ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest, ProjectManagementRequest } from './UiTypes';
 import { common } from '@kit.AbilityKit';
 import { PairMaterial, KnownMac, ClaimResult, ClaimBody, ProofBody, LoginBody, LoginProof, PairStatus, LoginResult, ProjectItem, ThreadItem, ThreadPage, SnapshotBackend, SnapshotMessage, ExecutionSummary, LiveProgress, Snapshot, TextInputItem, HistoryItem, HistoryTurn, HistoryPage, HistoryChunk, MessageView, MessagePayload, PendingSend, SendBody, QueuedMessage, SteerBody, OperationResult, QuestionOption, QuestionItem, QuestionAnswer, QuestionReplyBody, ApprovalItem, ApprovalReplyBody, ApprovalReplyResult, InterruptBody, InterruptResult, CancelBody, NavigationThread, NavigationProject, NavigationSection, NavigationData, ModelItem, ModelSettings, ModelSettingsBody, CreateThreadBody, BackendStatus } from './UiTypes';
 export * from './UiTypes';
@@ -15,6 +15,7 @@ export abstract class UiState {
     return section?.name || this.projects.find((p: ProjectItem) => p.id === this.selectedProjectId)?.name || '';
   }
   backendKind: string = '';
+  uploadLimits: UploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 };
   get threadActions(): ThreadAction[] {
     return this.capabilities.threadActions || (this.selectedAgent === 'codex' ? [{ action: 'rename', label: '重新命名' }, { action: 'pin', label: '固定', activeLabel: '取消固定' }, { action: 'project', label: '项目' }, { action: 'section', label: '分区' }, { action: 'archive', label: '封存' }] : []);
   }
@@ -57,6 +58,7 @@ export abstract class UiState {
   uploadProgress: number = -1;
   get hasDraftContent(): boolean { return this.draft.trim().length > 0 || this.references.length > 0 || this.attachments.length > 0; }
   abstract pickImages(): Promise<void>;
+  abstract pickFiles(): Promise<void>;
   abstract removeImage(id: string): Promise<void>;
   extensionItems: ExtensionItem[] = [];
   extensionTotal: number = 0;

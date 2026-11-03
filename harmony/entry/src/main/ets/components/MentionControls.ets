@@ -6,14 +6,12 @@ export struct MentionControls {
   @ObjectLink client: UiState;
   @Prop @Watch('draftChanged') draft: string = '';
   @Prop @Watch('draftChanged') catalogScope: string = '';
-  @Prop @Watch('requested') openVersion: number = 0;
-  private requested(): void { if (this.client.canControlProject && !this.client.busy) { this.typing = false; this.open = true; this.search(''); } }
   @State private open: boolean = false;
   @State private query: string = '';
   @State private error: string = '';
   private typing: boolean = false;
   private debounce: number = -1;
-  private draftChanged(): void { const match = this.draft.match(/(?:^|\s)@([^\s@]*)$/); if (match && this.client.canControlProject && !this.client.busy) { this.typing = true; this.open = true; this.search(match[1]); } else if (this.typing) { this.open = false; this.typing = false; } }
+  private draftChanged(): void { const match = this.draft.match(/(^|[^A-Za-z0-9_.+-])@([^\s@]*)$/); if (match && this.client.canControlProject && !this.client.busy) { this.typing = true; this.open = true; this.search(match[2]); } else if (this.typing) { this.open = false; this.typing = false; } }
   private search(value: string): void { this.query = value; clearTimeout(this.debounce); this.debounce = setTimeout(() => { this.error = ''; this.client.loadExtensions(value).catch((e: Error) => { this.error = this.client.userFacingError(e); }); }, 150); }
   aboutToAppear(): void { this.draftChanged(); }
   aboutToDisappear(): void { clearTimeout(this.debounce); }
@@ -29,7 +27,7 @@ export struct MentionControls {
           ForEach(this.client.extensionItems, (item: ExtensionItem) => {
             Button() { Row({ space: 10 }) { ExtensionIcon({ client: this.client, item: item, appearance: this.client.appearance, revision: this.client.extensionIconVersion }); Column({ space: 4 }) { Text(item.name).fontSize(14).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); Text((item.kind === 'browser' ? '浏览器 · ' : item.kind === 'plugin' ? '插件 · ' : 'Skill · ') + item.description).fontSize(11).fontColor(AppTheme.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }) }.layoutWeight(1).alignItems(HorizontalAlign.Start); if (this.client.references.some((r: ExtensionItem) => r.id === item.id)) { SymbolGlyph($r('sys.symbol.checkmark')).fontSize(14).fontColor([AppTheme.accent]) } }.padding(10).height(58).width('100%') }
               .id('extension-' + item.id).type(ButtonType.Normal).height(58).width('100%').backgroundColor(Color.Transparent).borderRadius(10).enabled(!this.client.busy)
-              .onClick(() => { this.client.toggleReference(item).then(async () => { await this.client.updateDraft(this.client.draft.replace(/(^|\s)@[^\s@]*$/, '$1')); this.open = false; this.typing = false; }).catch((e: Error) => { this.error = this.client.userFacingError(e); }); })
+              .onClick(() => { this.client.toggleReference(item).then(async () => { await this.client.updateDraft(this.client.draft.replace(/@[^\s@]*$/, '')); this.open = false; this.typing = false; }).catch((e: Error) => { this.error = this.client.userFacingError(e); }); })
           }, (item: ExtensionItem) => JSON.stringify(item))
           if (!this.client.extensionLoading && this.client.extensionItems.length === 0) { Text('没有可用的匹配项').fontSize(13).fontColor(AppTheme.secondary).padding(16) }
         }.width('100%')

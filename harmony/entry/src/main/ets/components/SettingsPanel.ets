@@ -69,7 +69,7 @@ export struct SettingsPanel {
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
             Row() { Text('新' + this.client.containerName + '权限').fontSize(14).fontColor(AppTheme.text).layoutWeight(1); Text(this.client.newProjectCapability === 'control' ? '自动可执行' : this.client.newProjectCapability === 'read' ? '自动只读' : '逐项授权').id('new-project-policy').fontSize(12).fontColor(AppTheme.secondary) }.padding({ left: 16, right: 16 }).height(54).width('100%')
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
-            Row({ space: 12 }) { Column({ space: 4 }) { Text('CLI 下一步建议').fontSize(14).fontColor(AppTheme.text); Text('每回合最多额外采样一次，使用 CLI 额度').fontSize(11).fontColor(AppTheme.secondary) }.layoutWeight(1).alignItems(HorizontalAlign.Start); Toggle({ type: ToggleType.Switch, isOn: this.client.nextSuggestionEnabled }).id('suggestions-enabled').onChange((value: boolean) => { this.client.saveSuggestionSetting(value).catch(() => { this.info = '建议设置保存失败'; }); }) }.padding({ left: 16, right: 16 }).height(64).width('100%')
+            Row({ space: 12 }) { Column({ space: 4 }) { Text('下一步建议').fontSize(14).fontColor(AppTheme.text); Text('每回合最多生成一次，使用智能体额度').fontSize(11).fontColor(AppTheme.secondary) }.layoutWeight(1).alignItems(HorizontalAlign.Start); Toggle({ type: ToggleType.Switch, isOn: this.client.nextSuggestionEnabled }).id('suggestions-enabled').onChange((value: boolean) => { this.client.saveSuggestionSetting(value).catch(() => { this.info = '建议设置保存失败'; }); }) }.padding({ left: 16, right: 16 }).height(64).width('100%')
           }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
         }.width('100%')
         Column({ space: 6 }) {

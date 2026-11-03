@@ -38,11 +38,11 @@ export class MessageView {
   id: string; role: string; text: string; status: string;
   constructor(id: string, role: string, value: string, status: string = 'completed') { this.id = id; this.role = role; this.text = value; this.status = status; }
 }
-export interface DraftImage { id: string; path: string; uri: string; size: number; mime: string; }
-export interface ImageUploadBody { projectId: string; imageId: string; offset: number; totalBytes: number; mime: string; data: string; }
+export interface DraftImage { id: string; path: string; uri: string; size: number; mime: string; name?: string; }
+export interface ImageUploadBody { projectId: string; imageId: string; offset: number; totalBytes: number; mime: string; name?: string; data: string; }
 export interface ImageUploadResult { imageId: string; nextOffset: number; }
 export interface RemoveImagesBody { projectId: string; images: string[]; }
-export interface MessagePayload { text: string; references?: string[]; images?: string[]; }
+export interface MessagePayload { text: string; references?: string[]; images?: string[]; files?: string[]; }
 export interface PendingSend { draftKey?: string; id: string; projectId: string; threadId: string; hash: string; }
 export interface SendBody { type: string; clientMessageId: string; projectId: string; threadId: string; payload: MessagePayload; }
 export interface QueuedMessage { id: string; state: string; }
@@ -65,12 +65,13 @@ export interface DesktopSyncStatus { pending: number; appliedAt: number; error: 
 export interface NavigationData { scopeProjects?: ProjectItem[]; desktopSync?: DesktopSyncStatus; newProjectCapability?: string; pinned?: NavigationThread[]; sections: NavigationSection[]; projects: NavigationProject[]; recent: NavigationThread[]; recentThreads?: NavigationThread[]; }
 export interface ModelOption { value: string; label: string; }
 export interface ThreadAction { action: string; label: string; activeLabel?: string; }
-export interface BackendCapabilities { threadActions?: ThreadAction[]; createThreads?: boolean; modelSettings: boolean; permissions: boolean; suggestions: boolean; steer: boolean; images: boolean; extensions: boolean; changes: boolean; }
+export interface BackendCapabilities { threadActions?: ThreadAction[]; createThreads?: boolean; modelSettings: boolean; permissions: boolean; suggestions: boolean; steer: boolean; images: boolean; files?: boolean; extensions: boolean; changes: boolean; }
 export interface ModelItem { effortOptions?: ModelOption[]; model: string; name: string; defaultEffort: string; efforts: string[]; fastTier?: string; }
 export interface ModelSettings { model: string; effort: string; serviceTier?: string; }
 export interface ModelSettingsBody { projectId: string; threadId: string; model: string; effort: string; serviceTier?: string | null; }
 export interface CreateThreadBody { workspaceId?: string; clientRequestId?: string; approvalMode?: string; confirmFullAccess?: boolean; projectId: string; model?: string; effort?: string; serviceTier?: string | null; }
-export interface BackendStatus { backendReady: boolean; backendKind?: string; availableBackends?: string[]; capabilities?: BackendCapabilities; }
+export interface UploadLimits { fileBytes: number; imageBytes: number; messageBytes: number; maxAttachments: number; chunkBytes: number; }
+export interface BackendStatus { uploadLimits?: UploadLimits; backendReady: boolean; backendKind?: string; availableBackends?: string[]; capabilities?: BackendCapabilities; }
 
 
 export interface DisplaySettings { reduceTransparency: boolean; reduceMotion: boolean; appearance?: string; }
