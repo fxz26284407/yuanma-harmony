@@ -96,6 +96,16 @@ export struct WorkspaceView {
     catch (error) { this.errorText = this.safeError(error as Error); }
   }
 
+  private async openProject(project: ProjectItem): Promise<void> {
+    this.errorText = '';
+    try {
+      await this.client.selectProject(project.id);
+      if (project.capability === 'control' && this.client.canCreateThread) { await this.client.createThread(); this.changePage('chat'); }
+      else { this.changePage('threads'); }
+      this.showProjects = false;
+    } catch (error) { this.errorText = this.safeError(error as Error); }
+  }
+
   @Builder
   private Header() {
     Row({ space: 10 }) {
@@ -127,7 +137,9 @@ export struct WorkspaceView {
         }.width('100%').padding({ top: 32, bottom: 12 })
         Column({ space: 6 }) {
           if (!this.client.authenticated) { Text('首次使用，请先在自己的 Mac 安装网关并自行部署中继。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%') }
-          Hyperlink('https://github.com/fxz26284407/yuanma-gateway#readme', '查看网关搭建指南（GitHub）').id('gateway-guide-connect').color(this.client.appearance === 'light' ? '#287889' : '#86CDDD').height(44).width('100%').backgroundColor(AppTheme.subtle).borderRadius(14).accessibilityText('在系统浏览器打开 GitHub 网关搭建指南')
+          Row() {
+            Hyperlink('https://github.com/fxz26284407/yuanma-gateway#readme', '查看网关搭建指南（GitHub）').id('gateway-guide-connect').color(this.client.appearance === 'light' ? '#287889' : '#86CDDD').height(44).accessibilityText('在系统浏览器打开 GitHub 网关搭建指南')
+          }.width('100%').padding({ left: 16, right: 16 }).justifyContent(FlexAlign.Center).backgroundColor(AppTheme.subtle).borderRadius(14)
         }.width('100%')
         if (this.client.authenticated) {
           Column({ space: 12 }) {
@@ -173,14 +185,19 @@ export struct WorkspaceView {
       Column({ space: 4 }) {
         // ForEach caches by key; replaced snapshots must invalidate the captured row data.
         ForEach(this.client.projects, (project: ProjectItem) => {
+          Row() {
           Button() {
             Row({ space: 12 }) {
               SymbolGlyph($r('sys.symbol.folder')).fontSize(20).fontColor([AppTheme.secondary])
               Column({ space: 4 }) { Text(project.name).fontSize(16).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); Text(project.capability === 'control' ? '可执行' : '只读').fontSize(12).fontColor(AppTheme.secondary) }.layoutWeight(1).alignItems(HorizontalAlign.Start)
               if (this.client.selectedProjectId === project.id) { SymbolGlyph($r('sys.symbol.checkmark')).fontSize(17).fontColor([AppTheme.accent]) }
             }.height(64).padding({ left: 12, right: 12 }).width('100%')
-          }.id('project-' + project.id).type(ButtonType.Normal).width('100%').height(64).backgroundColor(this.client.selectedProjectId === project.id ? AppTheme.selected : Color.Transparent).borderRadius(12).enabled(!this.client.busy)
-            .onClick(() => { this.errorText = ''; this.client.selectProject(project.id).then(async () => { this.showProjects = false; if (project.capability === 'control' && this.client.canCreateThread) { await this.client.createThread(); this.changePage('chat'); } else { this.changePage('threads'); } }).catch((e: Error) => { this.errorText = this.safeError(e); }); })
+          }.id('project-' + project.id).type(ButtonType.Normal).layoutWeight(1).height(64).backgroundColor(Color.Transparent).borderRadius(12).enabled(this.client.authenticated && !this.client.busy)
+            .onClick(() => { this.openProject(project); })
+          if (project.capability === 'control' && this.client.canCreateThread) {
+            Button() { SymbolGlyph($r('sys.symbol.plus')).fontSize(18).fontColor([AppTheme.accent]) }.id('new-project-thread-' + project.id).width(44).height(44).padding(0).backgroundColor(Color.Transparent).accessibilityText('在' + project.name + '新建会话').enabled(this.client.authenticated && !this.client.busy).onClick(() => { this.openProject(project); })
+          }
+          }.width('100%').backgroundColor(this.client.selectedProjectId === project.id ? AppTheme.selected : Color.Transparent).borderRadius(12)
         }, (project: ProjectItem) => JSON.stringify([project.id, project.name, project.capability]))
         if (!this.client.projects.length) { Text(this.client.authenticated ? 'Mac 尚未授权项目' : '连接 Mac 后选择项目').fontSize(14).fontColor(AppTheme.secondary).padding(24) }
       }.width('100%')
