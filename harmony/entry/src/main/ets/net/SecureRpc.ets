@@ -22,7 +22,7 @@ export function relayEndpoint(value?: string): string {
     try {
       if (typeof value !== 'string' || value.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(value)) { throw new Error('Invalid address'); }
       const endpoint = url.URL.parseURL(value);
-      if (endpoint.protocol !== 'ws:' || !endpoint.hostname || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || (endpoint.port && (!/^\d+$/.test(endpoint.port) || Number(endpoint.port) < 1 || Number(endpoint.port) > 65535))) { throw new Error('Invalid address'); }
+      if ((endpoint.protocol !== 'ws:' && endpoint.protocol !== 'wss:') || !endpoint.hostname || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || (endpoint.port && (!/^\d+$/.test(endpoint.port) || Number(endpoint.port) < 1 || Number(endpoint.port) > 65535))) { throw new Error('Invalid address'); }
       return endpoint.href;
     } catch (_) {}
   }
