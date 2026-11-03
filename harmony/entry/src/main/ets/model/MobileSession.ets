@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT, findAgent } from './Agents';
 import { PendingThreadCreation, AgentSelection, CreateProjectBody, ProjectManagementRequest } from './UiTypes';
 import { connection } from '@kit.NetworkKit';
 import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
@@ -98,7 +99,7 @@ export class MobileSession extends UiState {
       }
     }
     const selected: string = await this.identity.get('selectedAgent');
-    this.selectedAgent = selected === 'deepseek' ? 'deepseek' : 'codex';
+    this.selectedAgent = (findAgent(selected) || DEFAULT_AGENT).id;
     await this.loadAgent();
     this.initialized = true; this.watchNetwork();
   }
@@ -123,7 +124,7 @@ export class MobileSession extends UiState {
     if (this.selectedProjectId) { await this.restoreDraft(); }
   }
   async switchAgent(kind: string): Promise<void> {
-    if (kind !== 'codex' && kind !== 'deepseek') { throw new Error('不支持的智能体'); }
+    if (!findAgent(kind)) { throw new Error('不支持的智能体'); }
     if (kind === this.selectedAgent) { return; }
     if (!this.initialized || this.busy || this.extensionSyncing || this.imageLoading || this.diffLoading) { throw new Error('请等待当前操作完成后切换智能体'); }
     this.busy = true;

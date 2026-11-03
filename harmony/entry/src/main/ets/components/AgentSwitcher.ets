@@ -1,3 +1,4 @@
+import { AGENTS, AgentInfo } from '../model/Agents';
 import { UiState } from '../model/UiState';
 import { AppTheme } from '../theme/AppTheme';
 
@@ -34,14 +35,13 @@ export struct AgentSwitcher {
   private Menu() {
     Column({ space: 4 }) {
       Text('选择智能体').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 10, top: 6, bottom: 4 })
-      this.AgentRow('codex', 'Codex', $r('app.media.agent_codex'))
-      this.AgentRow('deepseek', 'DeepSeek', $r('app.media.agent_deepseek'))
+      ForEach(AGENTS, (agent: AgentInfo) => { this.AgentRow(agent.id, agent.name, agent.logo) }, (agent: AgentInfo) => agent.id)
     }.padding(8).width(224)
   }
   build() {
     Button() {
       Row({ space: 3 }) {
-        Image(this.client.selectedAgent === 'deepseek' ? $r('app.media.agent_deepseek') : $r('app.media.agent_codex')).width(28).height(28).objectFit(ImageFit.Contain)
+        Image(this.client.agent.logo).width(28).height(28).objectFit(ImageFit.Contain)
         SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(9).fontColor([AppTheme.secondary])
       }
     }.id('agent-switcher').height(44).width(52).padding(0).backgroundColor(Color.Transparent)

@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT, findAgent, AgentInfo } from './Agents';
 import { UploadLimits, BackendCapabilities, ThreadAction, PermissionOption, ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest, ProjectManagementRequest } from './UiTypes';
 import { common } from '@kit.AbilityKit';
 import { PairMaterial, KnownMac, ClaimResult, ClaimBody, ProofBody, LoginBody, LoginProof, PairStatus, LoginResult, ProjectItem, ThreadItem, ThreadPage, SnapshotBackend, SnapshotMessage, ExecutionSummary, LiveProgress, Snapshot, TextInputItem, HistoryItem, HistoryTurn, HistoryPage, HistoryChunk, MessageView, MessagePayload, PendingSend, SendBody, QueuedMessage, SteerBody, OperationResult, QuestionOption, QuestionItem, QuestionAnswer, QuestionReplyBody, ApprovalItem, ApprovalReplyBody, ApprovalReplyResult, InterruptBody, InterruptResult, CancelBody, NavigationThread, NavigationProject, NavigationSection, NavigationData, ModelItem, ModelSettings, ModelSettingsBody, CreateThreadBody, BackendStatus } from './UiTypes';
@@ -5,9 +6,10 @@ export * from './UiTypes';
 
 @Observed
 export abstract class UiState {
-  selectedAgent: string = 'codex';
-  get containerName(): string { return this.selectedAgent === 'deepseek' ? '工作区' : '项目'; }
-  get agentName(): string { return this.selectedAgent === 'deepseek' ? 'DeepSeek' : 'Codex'; }
+  selectedAgent: string = DEFAULT_AGENT.id;
+  get agent(): AgentInfo { return findAgent(this.selectedAgent) || DEFAULT_AGENT; }
+  get containerName(): string { return this.agent.containerName; }
+  get agentName(): string { return this.agent.name; }
   abstract switchAgent(kind: string): Promise<void>;
   get activeContainerName(): string {
     const current = this.navigation?.recentThreads?.find((t: NavigationThread) => t.id === this.selectedThreadId);
