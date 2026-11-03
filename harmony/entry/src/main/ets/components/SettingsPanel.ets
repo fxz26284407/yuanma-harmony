@@ -36,7 +36,7 @@ export struct SettingsPanel {
             TextInput({ text: this.projectPath, placeholder: '~/workspace' }).id('project-creation-path-input').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(4096).onChange((value: string) => { this.projectPath = value; })
             if (this.pathError) { Text(this.pathError).fontSize(12).fontColor(AppTheme.error).width('100%') }
           }.width('100%')
-        } else if (this.infoTitle === '项目访问权限' && this.client.projects.length > 0) {
+        } else if (this.infoTitle === this.client.containerName + '访问权限' && this.client.projects.length > 0) {
           Column({ space: 8 }) {
             ForEach(this.client.projects, (project: ProjectItem) => {
               Row({ space: 12 }) {
@@ -61,11 +61,13 @@ export struct SettingsPanel {
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
             this.InfoRow({ icon: $r('sys.symbol.info_circle'), title: '连接信息', value: '', action: () => { this.info = this.client.fingerprint ? 'Mac 身份指纹\n' + this.client.fingerprint + '\n端到端加密连接，密钥证明后鉴权。' : '连接 Mac 后可查看设备身份。'; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
-            this.InfoRow({ icon: $r('sys.symbol.folder'), title: '项目访问权限', value: this.client.projects.length + ' 个项目', action: () => { this.info = this.client.projects.length ? this.client.projects.length + ' 个已授权项目' : '暂无授权项目'; } })
+            this.InfoRow({ icon: $r('sys.symbol.folder'), title: this.client.containerName + '访问权限', value: this.client.projects.length + ' 个' + this.client.containerName, action: () => { this.info = this.client.projects.length ? this.client.projects.length + ' 个已授权' + this.client.containerName : '暂无授权' + this.client.containerName; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
+            if (this.client.selectedAgent === 'codex') {
             this.InfoRow({ icon: $r('sys.symbol.folder'), title: '默认项目创建路径', value: this.client.projectCreationPath, action: () => { this.projectPath = this.client.projectCreationPath; this.pathError = ''; this.info = 'path'; } })
+            }
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
-            Row() { Text('新项目权限').fontSize(14).fontColor(AppTheme.text).layoutWeight(1); Text(this.client.newProjectCapability === 'control' ? '自动可执行' : this.client.newProjectCapability === 'read' ? '自动只读' : '逐项授权').id('new-project-policy').fontSize(12).fontColor(AppTheme.secondary) }.padding({ left: 16, right: 16 }).height(54).width('100%')
+            Row() { Text('新' + this.client.containerName + '权限').fontSize(14).fontColor(AppTheme.text).layoutWeight(1); Text(this.client.newProjectCapability === 'control' ? '自动可执行' : this.client.newProjectCapability === 'read' ? '自动只读' : '逐项授权').id('new-project-policy').fontSize(12).fontColor(AppTheme.secondary) }.padding({ left: 16, right: 16 }).height(54).width('100%')
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
             Row({ space: 12 }) { Column({ space: 4 }) { Text('CLI 下一步建议').fontSize(14).fontColor(AppTheme.text); Text('每回合最多额外采样一次，使用 CLI 额度').fontSize(11).fontColor(AppTheme.secondary) }.layoutWeight(1).alignItems(HorizontalAlign.Start); Toggle({ type: ToggleType.Switch, isOn: this.client.nextSuggestionEnabled }).id('suggestions-enabled').onChange((value: boolean) => { this.client.saveSuggestionSetting(value).catch(() => { this.info = '建议设置保存失败'; }); }) }.padding({ left: 16, right: 16 }).height(64).width('100%')
           }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
@@ -77,9 +79,9 @@ export struct SettingsPanel {
               SymbolGlyph($r('sys.symbol.rectangle_on_rectangle')).fontSize(20).fontColor([AppTheme.secondary])
               Text(this.client.extensionSyncing ? '正在同步…' : '同步 Skills 与插件').fontSize(14).fontColor(AppTheme.text).layoutWeight(1)
               if (this.client.extensionSyncing) { LoadingProgress().width(18).height(18).color(AppTheme.accent) } else { Text('同步').fontSize(12).fontColor(AppTheme.accent) }
-            }.padding({ left: 16, right: 16 }).height(54).width('100%') }.id('sync-extensions').type(ButtonType.Normal).padding(0).height(54).width('100%').backgroundColor(Color.Transparent).enabled(this.client.authenticated && !this.client.busy && !this.client.extensionSyncing && this.client.projects.length > 0)
+            }.padding({ left: 16, right: 16 }).height(54).width('100%') }.id('sync-extensions').type(ButtonType.Normal).padding(0).height(54).width('100%').backgroundColor(Color.Transparent).enabled(this.client.capabilities.extensions && this.client.authenticated && !this.client.busy && !this.client.extensionSyncing && this.client.projects.length > 0)
               .onClick(() => { this.client.syncExtensions().catch((error: Error) => { this.infoTitle = '同步 Skills 与插件'; this.info = this.client.userFacingError(error) || '连接正在恢复，请恢复连接后重新同步'; }); })
-            Text(this.client.extensionSyncStatus || (this.client.authenticated ? (this.client.projects.length > 0 ? '读取当前 Mac 已安装并启用的扩展，供输入框 @ 使用。项目专属 Skill 随项目切换。' : '请先在 Mac 授权一个项目，再同步该电脑的扩展清单。') : '连接 Mac 后可同步当前电脑的扩展清单。')).id('extension-sync-status').fontSize(11).lineHeight(18).fontColor(AppTheme.secondary).width('100%').padding({ left: 16, right: 16, bottom: 12 })
+            Text(this.client.extensionSyncStatus || (this.client.authenticated ? (this.client.projects.length > 0 ? '读取当前智能体已启用的扩展，供输入框 @ 使用。Skill 随' + this.client.containerName + '和会话切换。' : '请先在 Mac 授权一个' + this.client.containerName + '，再同步扩展清单。') : '连接 Mac 后可同步当前电脑的扩展清单。')).id('extension-sync-status').fontSize(11).lineHeight(18).fontColor(AppTheme.secondary).width('100%').padding({ left: 16, right: 16, bottom: 12 })
           }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
         }.width('100%')
         Column({ space: 6 }) {

@@ -7,7 +7,7 @@ import { encode, decode, utf8, stringOf, hex } from '../security/Bytes';
 import { TransportIdentity } from '../security/Identity';
 
 interface LinkReply { type: string; }
-interface WireRequest { requestId: string; method: string; path: string; body?: Object; authorization?: string; }
+interface WireRequest { requestId: string; method: string; path: string; backend: string; body?: Object; authorization?: string; }
 interface WireError { code: string; message: string; }
 interface WireResponse<T> { requestId: string; data?: T; error?: WireError; }
 export function linkError(message: string): Error { const error = new Error(message); error.name = 'LinkError'; return error; }
@@ -42,6 +42,7 @@ export class SecureRpc {
   private queuedRequests: number = 0;
   private timer: number = -1;
   private handshakeTimer: number = -1;
+  backend: string = 'codex';
   binding: string = '';
   encrypted: boolean = false;
   onClosed?: (error: Error) => void;
@@ -105,19 +106,19 @@ export class SecureRpc {
   }
   request<T>(method: string, path: string, body?: Object, authorization?: string): Promise<T> {
     if (this.queuedRequests >= 8) { return Promise.reject(new Error('当前操作较多，请稍后重试')); }
-    const binding: string = this.binding; this.queuedRequests++;
+    const binding: string = this.binding; const backend: string = this.backend; this.queuedRequests++;
     const result: Promise<T> = this.requestChain.then(async (): Promise<T> => {
       if (!this.encrypted || this.binding !== binding) { throw linkError('连接正在恢复，排队请求未发送'); }
-      return await this.requestNow<T>(method, path, body, authorization);
+      return await this.requestNow<T>(method, path, backend, body, authorization);
     });
     this.requestChain = result.then(() => { this.queuedRequests--; }, () => { this.queuedRequests--; });
     return result;
   }
-  private async requestNow<T>(method: string, path: string, body?: Object, authorization?: string): Promise<T> {
+  private async requestNow<T>(method: string, path: string, backend: string, body?: Object, authorization?: string): Promise<T> {
     if (!this.encrypted || this.responseResolve !== undefined) { throw new Error('安全会话不可用或上一请求未完成'); }
     const epoch: number = this.epoch;
     const requestId: string = encode(cryptoFramework.createRandom().generateRandomSync(16).data.slice().buffer as ArrayBuffer);
-    const request: WireRequest = { requestId: requestId, method: method, path: path, body: body, authorization: authorization };
+    const request: WireRequest = { requestId: requestId, method: method, path: path, backend: backend, body: body, authorization: authorization };
     const promise = new Promise<string>((resolve, reject) => {
       this.responseResolve = resolve; this.responseReject = reject;
       this.timer = setTimeout(() => { this.fail(linkError('网络响应超时，已提交消息会核对状态'), epoch); }, 10000);
@@ -126,7 +127,13 @@ export class SecureRpc {
     try {
       const bytes = utf8(JSON.stringify(request));
       const records = native.encrypt(this.handle, bytes); new Uint8Array(bytes).fill(0);
-      for (const record of records) { this.sendPacket(record); }
+      // Noise records use ordered nonces; await each native send before the next.
+      const socket = this.socket;
+      if (!socket) { throw linkError('发送连接已断开'); }
+      for (const record of records) {
+        if (epoch !== this.epoch || this.socket !== socket) { throw linkError('连接已更新，上传尚未完成'); }
+        if (!await socket.send(record)) { throw linkError('发送连接中断，已提交的消息会核对状态'); }
+      }
       const raw = await promise;
       if (epoch !== this.epoch) { throw linkError('旧连接响应已丢弃'); }
       const response = JSON.parse(raw) as WireResponse<T>;

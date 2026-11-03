@@ -1,4 +1,4 @@
-import { CreateProjectBody, ProjectManagementRequest } from './UiTypes';
+import { PendingThreadCreation, AgentSelection, CreateProjectBody, ProjectManagementRequest } from './UiTypes';
 import { connection } from '@kit.NetworkKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -39,6 +39,8 @@ export class MobileSession extends UiState {
   private transportPublic: string = '';
   private signingPublic: string = '';
   private pendingSend?: PendingSend;
+  private pendingCreation?: PendingThreadCreation;
+  private legacyGateway: string = '';
   private asyncQuestions: ApprovalItem[] = [];
   private suggestionRequestKey: string = '';
   private suggestionPending: boolean = false;
@@ -47,6 +49,7 @@ export class MobileSession extends UiState {
   private tokenExpires: number = 0;
   private generation: number = 0;
   private reconnectTask?: Promise<void>;
+  private refreshTask?: Promise<void>;
   private retryTimer: number = -1;
   private retryDelay: number = 500;
   private foreground: boolean = true;
@@ -82,14 +85,66 @@ export class MobileSession extends UiState {
     try { this.imageRoot = context.cacheDir + '/codex-media'; if (!fileIo.accessSync(this.imageRoot)) { fileIo.mkdirSync(this.imageRoot); } fileIo.listFileSync(this.imageRoot).forEach((name: string) => { if (/^(ext-)?[a-f0-9]{64}\.(png|jpg|gif|webp|svg)$/.test(name)) { fileIo.unlinkSync(this.imageRoot + '/' + name); } }); } catch (_) { this.imageRoot = ''; }
     const display: string = await this.identity.get('displaySettings'); if (display) { const value = JSON.parse(display) as DisplaySettings; this.reduceTransparency = value.reduceTransparency === true; this.reduceMotion = value.reduceMotion === true; this.appearance = value.appearance === 'light' ? 'light' : 'dark'; }
     this.applyAppearance();
-    const pending: string = await this.identity.get('pendingSend');
-    if (pending) { this.pendingSend = JSON.parse(pending) as PendingSend; this.lastMessageState = 'unknown'; }
-    const cached: string = await this.identity.get('knownMac');
-    if (cached.length > 0) { this.mac = JSON.parse(cached) as KnownMac; this.hasKnownMac = true; this.fingerprint = this.mac.gatewayId; this.projectCreationPath = (await this.identity.get('projectCreationPath.' + this.mac.gatewayId)) || '~/workspace'; }
+    const legacy: string = await this.identity.get('knownMac');
+    if (legacy) {
+      const mac = JSON.parse(legacy) as KnownMac; this.legacyGateway = mac.gatewayId;
+      if (!(await this.identity.get('knownMac.codex'))) { await this.identity.put('knownMac.codex', legacy); }
+      if (!(await this.identity.get('agentStorageMigrated'))) {
+        const pending: string = await this.identity.get('pendingSend');
+        const key: string = 'pendingSend.codex.' + mac.gatewayId;
+        if (pending && !(await this.identity.get(key))) { await this.identity.put(key, pending); }
+        await this.identity.put('agentStorageMigrated', 'true');
+      }
+    }
+    const selected: string = await this.identity.get('selectedAgent');
+    this.selectedAgent = selected === 'deepseek' ? 'deepseek' : 'codex';
+    await this.loadAgent();
     this.initialized = true; this.watchNetwork();
   }
+  private pendingKey(): string { return 'pendingSend.' + this.selectedAgent + '.' + this.fingerprint; }
+  private selectionKey(): string { return 'selection.' + this.selectedAgent + '.' + this.fingerprint; }
+  private async loadAgent(): Promise<void> {
+    let cached: string = await this.identity.get('knownMac');
+    if (!cached) {
+      cached = (await this.identity.get('knownMac.codex')) || (await this.identity.get('knownMac.deepseek'));
+      if (cached) { await this.identity.put('knownMac', cached); }
+    }
+    this.mac = cached ? JSON.parse(cached) as KnownMac : undefined;
+    this.hasKnownMac = this.mac !== undefined; this.fingerprint = this.mac?.gatewayId || '';
+    const creation: string = this.mac ? await this.identity.get('pendingCreate.' + this.selectedAgent + '.' + this.fingerprint) : '';
+    this.pendingCreation = creation ? JSON.parse(creation) as PendingThreadCreation : undefined;
+    const pending: string = this.mac ? await this.identity.get(this.pendingKey()) : '';
+    this.pendingSend = pending ? JSON.parse(pending) as PendingSend : undefined;
+    const selection: string = this.mac ? await this.identity.get(this.selectionKey()) : '';
+    if (selection) { const value = JSON.parse(selection) as AgentSelection; this.selectedProjectId = value.projectId; this.selectedThreadId = value.threadId; this.selectedThreadName = value.threadName; }
+    if (this.pendingSend) { this.selectedProjectId = this.pendingSend.projectId; this.selectedThreadId = this.pendingSend.threadId; this.lastMessageState = 'unknown'; }
+    if (this.mac) { this.projectCreationPath = (await this.identity.get('projectCreationPath.' + this.mac.gatewayId)) || '~/workspace'; }
+    if (this.selectedProjectId) { await this.restoreDraft(); }
+  }
+  async switchAgent(kind: string): Promise<void> {
+    if (kind !== 'codex' && kind !== 'deepseek') { throw new Error('不支持的智能体'); }
+    if (kind === this.selectedAgent) { return; }
+    if (!this.initialized || this.busy || this.extensionSyncing || this.imageLoading || this.diffLoading) { throw new Error('请等待当前操作完成后切换智能体'); }
+    this.busy = true;
+    try {
+      this.pauseConnection(); await this.refreshTask?.catch(() => {}); await this.draftWrites;
+      if (this.mac) { const selection: AgentSelection = { projectId: this.selectedProjectId, threadId: this.selectedThreadId, threadName: this.selectedThreadName }; await this.identity.put(this.selectionKey(), JSON.stringify(selection)); }
+      await this.identity.put('selectedAgent', kind);
+      this.selectedAgent = kind; this.mac = undefined; this.hasKnownMac = false; this.fingerprint = ''; this.deviceId = ''; this.pendingSend = undefined; this.pendingCreation = undefined;
+      this.navigation = undefined; this.newProjectCapability = 'none'; this.projects = []; this.threads = []; this.messages = []; this.queueMessages = []; this.approvals = []; this.asyncQuestions = [];
+      this.selectedProjectId = ''; this.selectedThreadId = ''; this.selectedThreadName = ''; this.currentTurnId = ''; this.waiting = false; this.activityTitle = '';
+      this.draft = ''; this.references = []; this.attachments = []; this.olderMessages = []; this.historyCursor = ''; this.readingMessage = undefined; this.readingChunks = []; this.readingMore = false;
+      this.changes = undefined; this.diffReview = undefined; this.diffText = ''; this.diffFileId = ''; this.diffMore = false; this.imageUri = ''; this.selectedImageId = ''; this.projectCreationPath = '~/workspace';
+      this.selectedModel = ''; this.selectedEffort = ''; this.selectedServiceTier = ''; this.modelDetail = ''; this.permissionOptions = []; this.permissionMode = 'ask'; this.permissionMobileControl = false; this.fullAccessConfirmed = false;
+      this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = ''; this.suggestionText = ''; this.suggestionState = 'idle'; this.suggestionRequestKey = ''; this.suggestionTurnId = ''; this.suggestionPending = false; this.recoveryIssue = '';
+      await this.loadAgent(); this.connectionVersion++;
+      this.status = this.hasKnownMac ? '已切换到 ' + this.agentName : '请连接 ' + this.agentName;
+      this.detail = this.hasKnownMac ? '正在恢复该智能体的连接' : '扫描 Mac 网关的配对码，两种智能体共用此连接';
+    } finally { this.busy = false; }
+    if (this.hasKnownMac) { await this.reconnect(); }
+  }
   private async connect(mac: KnownMac, generation: number = this.generation): Promise<void> {
-    this.checkGeneration(generation); this.clearConnection(); this.status = '正在建立安全会话';
+    this.checkGeneration(generation); this.clearConnection(); this.rpc.backend = this.selectedAgent; this.status = '正在建立安全会话';
     const key = await this.identity.transport();
     try { this.checkGeneration(generation); this.transportPublic = key.publicKey;
       this.signingPublic = encode(await this.signer.publicKey()); this.checkGeneration(generation);
@@ -117,7 +172,7 @@ export class MobileSession extends UiState {
     try {
       const mac: KnownMac = { gatewayId: material.gatewayId, publicKey: material.publicKey, relayUrl: endpoint };
       await this.connect(mac, generation);
-      const existingId: string = this.hasKnownMac && previousMac ? await this.identity.get(`device.${mac.gatewayId}`) : '';
+      const existingId: string = await this.identity.get(`device.${mac.gatewayId}`);
       this.checkGeneration(generation);
       if (existingId) {
         await this.login(existingId, generation); this.checkGeneration(generation);
@@ -134,14 +189,14 @@ export class MobileSession extends UiState {
       while (Date.now() < claim.expiresAt && generation === this.generation) {
         const state = await this.rpc.request<PairStatus>('GET', `/v1/pairings/${claim.claimId}/status`, undefined, `Pairing ${claim.claimToken}`);
         if (state.state === 'approved') {
-          await this.identity.put('knownMac', JSON.stringify(mac)); this.hasKnownMac = true;
-          await this.login(claim.deviceId, generation); return;
+          await this.login(claim.deviceId, generation);
+          await this.identity.put('knownMac', JSON.stringify(mac)); this.hasKnownMac = true; return;
         }
         if (state.state !== 'pending') { throw new Error(`配对未完成：${state.state}`); }
         await new Promise<void>((resolve) => { setTimeout(resolve, 2000); });
       }
       throw new Error('配对已过期或被取消');
-    } catch (error) { if (previousMac) { this.mac = previousMac; } this.disconnect(); if (this.hasKnownMac && this.reconnectEnabled) { this.scheduleRecovery(500); } throw (error as Error); } finally { this.busy = false; }
+    } catch (error) { this.mac = previousMac; this.fingerprint = previousMac?.gatewayId || ''; this.disconnect(); if (this.hasKnownMac && this.reconnectEnabled) { this.scheduleRecovery(500); } throw (error as Error); } finally { this.busy = false; }
   }
   private async login(deviceId: string, generation: number = this.generation): Promise<void> {
     if (this.mac === undefined) { throw new Error('缺少 Mac 身份'); }
@@ -157,12 +212,18 @@ export class MobileSession extends UiState {
     this.projects = await this.rpc.request<ProjectItem[]>('GET', '/v1/projects', undefined, `Bearer ${this.token}`); this.checkGeneration(generation);
     this.authenticated = true;
     const status = await this.rpc.request<BackendStatus>('GET', '/v1/status', undefined, `Bearer ${this.token}`); this.checkGeneration(generation);
-    if (status.backendReady) { try { const models = await this.rpc.request<ModelItem[]>('GET', '/v1/models', undefined, `Bearer ${this.token}`); this.checkGeneration(generation); this.models = models; } catch (error) { if (!this.authenticated || generation !== this.generation) { throw error as Error; } } }
-    this.status = '已连接 Mac'; this.detail = status.backendReady ? '安全连接已恢复' : 'Mac 已连接，Codex 后端暂未就绪';
+    const kind: string = status.backendKind || 'codex';
+    if (kind !== this.selectedAgent) { const error = new Error('当前 Mac 网关尚未提供 ' + this.agentName + '，请更新 Mac 网关后重连，无需重新扫码'); error.name = 'BackendMismatchError'; throw error; }
+    this.backendKind = kind;
+    // The pre-capability protocol was Codex-only. Unknown named backends fail closed.
+    const legacy: boolean = !status.backendKind;
+    this.capabilities = status.capabilities || { modelSettings: legacy, permissions: legacy, suggestions: legacy, steer: legacy, images: legacy, extensions: legacy, changes: legacy };
+    if (status.backendReady && this.capabilities.modelSettings) { try { const models = await this.rpc.request<ModelItem[]>('GET', '/v1/models', undefined, `Bearer ${this.token}`); this.checkGeneration(generation); this.models = models; } catch (error) { if (!this.authenticated || generation !== this.generation) { throw error as Error; } } }
+    this.status = '已连接 Mac'; this.detail = status.backendReady ? '安全连接已恢复' : 'Mac 已连接，智能体后端暂未就绪';
     this.recovering = false; this.recoveryIssue = ''; this.retryDelay = 500; clearTimeout(this.retryTimer); this.connectionVersion++;
   }
   private checkGeneration(generation: number): void { if (generation !== this.generation) { const error = new Error('已取消旧连接操作'); error.name = 'LinkError'; throw error; } }
-  private clearConnection(): void { this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
+  private clearConnection(): void { this.models = []; this.backendKind = ''; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
   private connectionLost(reason: string = 'transport'): void {
     console.info('CM_CONNECTION reset reason=' + reason);
     this.generation++; this.rpc.close(); this.clearConnection();
@@ -202,17 +263,19 @@ export class MobileSession extends UiState {
       console.info('CM_CONNECTION restore-start');
       const mac = this.mac!; await this.connect(mac, generation); const id: string = await this.identity.get(`device.${mac.gatewayId}`); this.checkGeneration(generation); if (!id) { throw new Error('设备身份记录缺失，请重新配对'); }
       await this.login(id, generation);
-      try { const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.navigation = navigation; this.newProjectCapability = navigation.newProjectCapability || 'none'; await this.loadHistory(); await this.loadModelSettings(); } catch (error) { if (!this.authenticated || generation !== this.generation) { throw error as Error; } this.detail = '已连接 Mac，会话正在同步'; }
+      try { const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.applyNavigation(navigation); await this.loadHistory(); await this.loadModelSettings(); } catch (error) { if (!this.authenticated || generation !== this.generation) { throw error as Error; } this.detail = '已连接 Mac，会话正在同步'; }
     } catch (error) {
       if (generation === this.generation) {
         this.rpc.close(); this.clearConnection();
         const failed = error as Error; console.warn('CM_CONNECTION restore-failed kind=' + failed.name + ' code=' + (failed instanceof RemoteError ? failed.code : 'local')); const denied: boolean = (failed instanceof RemoteError && failed.code === 'AUTH_DENIED') || failed.message.includes('身份与固定公钥不匹配') || failed.message.includes('身份记录缺失');
-        if (failed.name === 'RelayConfigError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '需更新连接地址'; this.detail = this.recoveryIssue; clearTimeout(this.retryTimer); }
+        if (failed.name === 'BackendMismatchError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '智能体不匹配'; this.detail = failed.message; clearTimeout(this.retryTimer); }
+        else if (failed.name === 'RelayConfigError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '需更新连接地址'; this.detail = this.recoveryIssue; clearTimeout(this.retryTimer); }
         else if (denied) { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = '设备授权需要确认，请在 Mac 检查此设备'; this.status = '需检查 Mac 授权'; this.detail = this.recoveryIssue; clearTimeout(this.retryTimer); }
         else { this.status = '正在恢复连接'; this.recovering = true; this.retryDelay = Math.min(15000, this.retryDelay * 2); this.scheduleRecovery(this.retryDelay); }
       }
       throw error as Error;
     } finally { this.busy = false; }
+    if (generation === this.generation) { await this.refreshExtensionCatalog(); }
   }
   private authorization(): string {
     if (!this.authenticated || !this.rpc.encrypted || this.tokenExpires <= Date.now()) { this.connectionLost(); const error = new Error('连接正在恢复，本次请求未发送'); error.name = 'LinkError'; throw error; }
@@ -240,18 +303,18 @@ export class MobileSession extends UiState {
       await this.uploadImages(projectId, selectedImages);
       const id: string = this.pendingSend !== undefined ? this.pendingSend.id : encode(cryptoFramework.createRandom().generateRandomSync(16).data.slice().buffer as ArrayBuffer);
       this.pendingSend = { draftKey: sourceDraftKey, id: id, projectId: projectId, threadId: threadId, hash: hash };
-      await this.identity.put('pendingSend', JSON.stringify(this.pendingSend));
+      await this.identity.put(this.pendingKey(), JSON.stringify(this.pendingSend));
       const body: SendBody = { type: 'message.send', clientMessageId: id, projectId: projectId, threadId: threadId, payload: { text: content, references: selectedReferences, images: selectedImages.map((item: DraftImage) => item.id) } };
       try {
         const result = await this.rpc.request<QueuedMessage>('POST', '/v1/commands', body, this.authorization());
         this.lastSubmissionId = result.id; this.lastMessageState = result.state; this.lastPendingText = content;
-        await this.identity.put('pendingSend', ''); this.pendingSend = undefined;
+        await this.identity.put(this.pendingKey(), ''); this.pendingSend = undefined;
         await this.acknowledgeDraft(sourceDraftKey, hash, projectId, threadId);
         this.detail = '网关已接收，执行状态以后端事实为准';
       } catch (error) {
         const failed = error as Error;
         if ((failed.name === 'LinkError' && failed.message.includes('未发送')) || (failed instanceof RemoteError && ['PROJECT_FORBIDDEN', 'THREAD_MISMATCH', 'UNSAFE_THREAD', 'PAYLOAD_TOO_LARGE', 'QUEUE_FULL', 'AUTH_REQUIRED', 'AUTH_DENIED', 'INVALID_REFERENCES', 'REFERENCE_UNAVAILABLE', 'INVALID_IMAGES', 'IMAGE_NOT_READY'].includes(failed.code))) {
-          await this.identity.put('pendingSend', ''); this.pendingSend = undefined; this.lastMessageState = 'failed';
+          await this.identity.put(this.pendingKey(), ''); this.pendingSend = undefined; this.lastMessageState = 'failed';
         } else { this.lastMessageState = 'unknown'; }
         throw failed;
       }
@@ -299,6 +362,7 @@ export class MobileSession extends UiState {
     } finally { this.busy = false; }
   }
   async steer(turnId: string, submissionId?: string): Promise<void> {
+    if (!this.capabilities.steer) { throw new Error('当前智能体不支持运行中引导'); }
     const id: string = submissionId || this.lastSubmissionId;
     const state: string = this.queueMessages.find((m: SnapshotMessage) => m.id === id)?.state || (id === this.lastSubmissionId ? this.lastMessageState : '');
     if (this.busy || !id || state !== 'queued') { throw new Error('没有可引导的本设备队列项'); }
@@ -316,12 +380,16 @@ export class MobileSession extends UiState {
     if (request.action === 'project' && !this.projects.some((p: ProjectItem) => p.id === request.targetProjectId && p.capability === 'control')) { throw new Error('没有目标项目的操作权限'); }
     let result: ThreadManagementResult; this.busy = true;
     try {
+    await this.refreshTask?.catch(() => {});
     if (request.action === 'project' || request.action === 'archive') {
       if (this.pendingSend?.threadId === thread.id) { throw new Error('请先核对该会话上次发送的结果，再操作'); }
       if (thread.id === this.selectedThreadId && this.hasDraftContent) { throw new Error('此会话还有草稿，请先发送或清空后操作'); }
-      await this.draftWrites.catch(() => {}); const key: string = 'draft.' + thread.projectId + '.' + thread.id;
-      const body: string = await this.identity.get(key); const refs: string = await this.identity.get('refs.' + key); const images: string = await this.identity.get('images.' + key);
-      if (body.trim() || (refs && (JSON.parse(refs) as ExtensionItem[]).length > 0) || (images && (JSON.parse(images) as DraftImage[]).length > 0)) { throw new Error('此会话还有本机草稿，请先处理后再操作'); }
+      await this.draftWrites.catch(() => {}); const scoped: string = this.threadDraftKey(thread.projectId, thread.id); const keys: string[] = [scoped];
+      if (this.selectedAgent === 'codex' && this.fingerprint === this.legacyGateway && !(await this.identity.get('migrated.' + scoped))) { keys.push('draft.' + thread.projectId + '.' + thread.id); }
+      for (const key of keys) {
+        const body: string = await this.identity.get(key); const refs: string = await this.identity.get('refs.' + key); const images: string = await this.identity.get('images.' + key);
+        if (body.trim() || (refs && (JSON.parse(refs) as ExtensionItem[]).length > 0) || (images && (JSON.parse(images) as DraftImage[]).length > 0)) { throw new Error('此会话还有本机草稿，请先处理后再操作'); }
+      }
     }
       const body: ThreadManagementBody = { projectId: thread.projectId, action: request.action, name: request.name, pinned: request.pinned, targetProjectId: request.targetProjectId, sectionId: request.sectionId };
       result = await this.rpc.request<ThreadManagementResult>('POST', '/v1/threads/' + thread.id + '/management', body, this.authorization());
@@ -337,7 +405,14 @@ export class MobileSession extends UiState {
       }
       throw error as Error;
     } finally { this.busy = false; }
-    if (result.archived && thread.id === this.selectedThreadId) { await this.createThread(); }
+    if (result.archived && thread.id === this.selectedThreadId) {
+      if (this.navigation?.sections.some((s: NavigationSection) => !!s.workspaceId)) {
+        this.selectedThreadId = ''; this.selectedThreadName = ''; this.currentTurnId = ''; this.waiting = false; this.activityTitle = '';
+        this.messages = []; this.queueMessages = []; this.approvals = []; this.asyncQuestions = []; this.olderMessages = []; this.historyCursor = '';
+        this.changes = undefined; this.diffReview = undefined; this.diffText = ''; this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = '';
+        await this.restoreDraft();
+      } else { await this.createThread(); }
+    }
     else if (request.action === 'project' && thread.id === this.selectedThreadId) { await this.loadHistory(); await this.loadPermissions(); }
     await this.refreshNavigation();
   }
@@ -352,9 +427,23 @@ export class MobileSession extends UiState {
     } finally { this.busy = false; }
     await this.refreshNavigation();
   }
+  private applyNavigation(navigation: NavigationData): void {
+    const previous: ProjectItem[] = this.projects;
+    this.navigation = navigation; this.newProjectCapability = navigation.newProjectCapability || 'none';
+    const projects: NavigationProject[] = [...navigation.projects, ...navigation.sections.reduce((items: NavigationProject[], section: NavigationSection) => [...items, ...section.projects], [])];
+    const seen: Set<string> = new Set<string>();
+    this.projects = (navigation.scopeProjects || projects).filter((p: ProjectItem) => ['read', 'control'].includes(p.capability) && !seen.has(p.id) && !!seen.add(p.id));
+    const threads: NavigationThread[] = [...projects.reduce((items: NavigationThread[], p) => [...items, ...p.threads], []), ...navigation.sections.reduce((items: NavigationThread[], section: NavigationSection) => [...items, ...(section.threads || [])], [])];
+    const selected = threads.find((t: NavigationThread) => t.id === this.selectedThreadId);
+    if (this.pendingSend) {
+      const pendingProject = previous.find((p: ProjectItem) => p.id === this.pendingSend?.projectId);
+      if (pendingProject && !this.projects.some((p: ProjectItem) => p.id === pendingProject.id)) { this.projects = [...this.projects, pendingProject]; }
+    } else if (selected) { this.selectedProjectId = selected.projectId; this.selectedThreadName = selected.name; }
+    else if (!this.projects.some((p: ProjectItem) => p.id === this.selectedProjectId)) { this.selectedProjectId = ''; this.selectedThreadId = ''; this.selectedThreadName = ''; }
+  }
   async refreshNavigation(): Promise<void> {
     if (!this.authenticated || this.busy) { return; } this.busy = true;
-    try { const generation: number = this.generation; const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.navigation = navigation; this.newProjectCapability = navigation.newProjectCapability || 'none'; const projects = [...navigation.projects, ...navigation.sections.reduce((items: ProjectItem[], section: NavigationSection) => [...items, ...section.projects], [])]; const seen: Set<string> = new Set<string>(); this.projects = projects.filter((p: ProjectItem) => ['read', 'control'].includes(p.capability) && !seen.has(p.id) && !!seen.add(p.id)); } finally { this.busy = false; }
+    try { const generation: number = this.generation; const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.applyNavigation(navigation); } finally { this.busy = false; }
   }
   async openNavigationThread(thread: NavigationThread): Promise<void> {
     if (!thread.projectId) { throw new Error('该会话尚未分配项目，请先在 Mac 归入项目'); }
@@ -363,26 +452,36 @@ export class MobileSession extends UiState {
     this.selectedProjectId = thread.projectId; await this.selectThread(thread);
   }
   async loadPermissions(): Promise<void> {
-    if (!this.selectedThreadId || !this.authenticated) { return; }
+    if (!this.capabilities.permissions || !this.selectedThreadId || !this.authenticated) { return; }
+    const generation: number = this.generation;
     const thread: string = this.selectedThreadId; const project: string = this.selectedProjectId;
     const value = await this.rpc.request<PermissionState>('GET', '/v1/threads/' + thread + '/permissions?projectId=' + encodeURIComponent(project), undefined, this.authorization());
-    if (thread === this.selectedThreadId && project === this.selectedProjectId) { this.permissionMode = value.mode; this.permissionMobileControl = value.mobileControl; this.fullAccessConfirmed = value.mode === 'full' && value.mobileControl; }
+    if (generation === this.generation && thread === this.selectedThreadId && project === this.selectedProjectId) { this.permissionOptions = value.options || []; this.permissionMode = value.mode; this.permissionMobileControl = value.mobileControl; this.fullAccessConfirmed = this.permissionConfirmation(value.mode) && value.mobileControl; }
   }
   async applyPermissions(mode: string, confirmFullAccess: boolean): Promise<void> {
-    if (!this.canControlProject || this.busy) { throw new Error('当前项目不允许修改权限，或操作尚未完成'); }
+    if (!this.capabilities.permissions) { throw new Error('当前智能体不支持修改权限'); }
+    if (!this.canControlProject || this.busy) { throw new Error('当前会话不允许修改执行策略，或操作尚未完成'); }
+    if (!this.selectedThreadId && (!this.canCreateThread || this.requiresWorkspaceThread)) { throw new Error('请先选择已有会话'); }
     if (this.lastMessageState === 'unknown') { throw new Error('请先核对上一条消息的发送结果'); }
-    if (!['ask', 'auto', 'full'].includes(mode) || (mode === 'full' && !confirmFullAccess)) { throw new Error('请先确认完整存取权'); }
+    if (!this.permissionChoices.some((o) => o.value === mode) || (this.permissionConfirmation(mode) && !confirmFullAccess)) { throw new Error('请先确认完整存取权'); }
     this.busy = true;
-    try { if (this.selectedThreadId) { const body: PermissionBody = { projectId: this.selectedProjectId, mode: mode, confirmFullAccess: confirmFullAccess }; const value = await this.rpc.request<PermissionState>('POST', '/v1/threads/' + this.selectedThreadId + '/permissions', body, this.authorization()); this.permissionMode = value.mode; this.permissionMobileControl = value.mobileControl; } else { this.permissionMode = mode; this.permissionMobileControl = true; } this.fullAccessConfirmed = mode === 'full' && confirmFullAccess; }
+    try { if (this.selectedThreadId) { const body: PermissionBody = { projectId: this.selectedProjectId, mode: mode, confirmFullAccess: confirmFullAccess }; const value = await this.rpc.request<PermissionState>('POST', '/v1/threads/' + this.selectedThreadId + '/permissions', body, this.authorization()); this.permissionOptions = value.options || []; this.permissionMode = value.mode; this.permissionMobileControl = value.mobileControl; } else { this.permissionMode = mode; this.permissionMobileControl = true; } this.fullAccessConfirmed = this.permissionConfirmation(mode) && confirmFullAccess; }
     finally { this.busy = false; }
   }
   async loadExtensions(query: string): Promise<void> {
+    if (!this.capabilities.extensions) { return; }
     if (!this.authenticated || !this.selectedProjectId) { throw new Error('请先连接 Mac 并选择项目'); }
     const generation: number = ++this.extensionGeneration; const project: string = this.selectedProjectId; const thread: string = this.selectedThreadId; const mac: string = this.fingerprint; this.extensionLoading = true;
     try { const result = await this.rpc.request<ExtensionPage>('GET', '/v1/extensions?projectId=' + encodeURIComponent(this.selectedProjectId) + (this.selectedThreadId ? '&threadId=' + encodeURIComponent(this.selectedThreadId) : '') + '&query=' + encodeURIComponent(query), undefined, this.authorization()); if (generation === this.extensionGeneration && mac === this.fingerprint && this.authenticated && project === this.selectedProjectId && thread === this.selectedThreadId) { this.extensionItems = result.items; this.extensionTotal = result.total; } }
     finally { if (generation === this.extensionGeneration) { this.extensionLoading = false; } }
   }
+  private async refreshExtensionCatalog(): Promise<void> {
+    if (!this.authenticated || !this.capabilities.extensions || !this.projects.length) { return; }
+    const generation: number = this.generation;
+    try { await this.syncExtensions(); } catch (error) { if (generation === this.generation) { this.extensionSyncStatus = '目录同步失败：' + (error as Error).message; } }
+  }
   async syncExtensions(): Promise<void> {
+    if (!this.capabilities.extensions) { return; }
     if (!this.authenticated || this.busy || this.extensionSyncing) { throw new Error('请先连接 Mac，并等待当前操作完成'); }
     const selected: string = this.selectedProjectId; const thread: string = this.selectedThreadId;
     const project = this.projects.find((p: ProjectItem) => p.id === selected) || this.projects[0];
@@ -412,6 +511,7 @@ export class MobileSession extends UiState {
     this.draftWrites = this.draftWrites.catch(() => {}).then(async () => { await this.identity.put(key, value); }); await this.draftWrites;
   }
   async pickImages(): Promise<void> {
+    if (!this.capabilities.images) { return; }
     if (this.busy || !this.canControlProject) { throw new Error('请先选择可执行项目，并等待当前操作完成'); }
     if (this.attachments.length >= 4) { throw new Error('每条消息最多发送 4 张图片'); }
     if (!this.attachmentRoot) { throw new Error('图片存储尚未就绪'); }
@@ -483,7 +583,7 @@ export class MobileSession extends UiState {
     return this.loadCachedImage('ext:' + item.iconId + ':' + this.appearance + ':' + this.extensionIconVersion, project, '/v1/extensions/' + encodeURIComponent(item.id) + '/icon?projectId=' + encodeURIComponent(project) + (this.selectedThreadId ? '&threadId=' + encodeURIComponent(this.selectedThreadId) : '') + '&theme=' + this.appearance, true);
   }
   private loadCachedImage(id: string, project: string, endpoint: string, icon: boolean = false): Promise<string> {
-    const mac: string = this.fingerprint; const key: string = (icon ? 'ext-' : '') + hex(native.sha256(utf8(mac + ':' + project + ':' + id)));
+    const mac: string = this.fingerprint; const key: string = (icon ? 'ext-' : '') + hex(native.sha256(utf8(this.selectedAgent + ':' + mac + ':' + project + ':' + id)));
     const cached: string | undefined = this.imageCache.get(key); if (cached) { this.imageCache.delete(key); this.imageCache.set(key, cached); return Promise.resolve(fileUri.getUriFromPath(cached)); }
     const pending: Promise<string> | undefined = this.imageTasks.get(key); if (pending) { return pending; }
     const result: Promise<string> = this.imageWrites.then(async (): Promise<string> => {
@@ -509,14 +609,19 @@ export class MobileSession extends UiState {
   }
   async readImage(ref: ImageReference): Promise<void> { this.selectedImageId = ref.id; this.imageUri = ''; this.imageLabel = ref.label; this.imageProgress = 0; this.imageLoading = true; try { const uri: string = await this.loadImage(ref); if (this.selectedImageId === ref.id) { this.imageUri = uri; } } finally { if (this.selectedImageId === ref.id) { this.imageLoading = false; } } }
   async loadModelSettings(): Promise<void> {
-    const thread: string = this.selectedThreadId; const project: string = this.selectedProjectId; if (!thread || !this.authenticated) { return; }
+    const generation: number = this.generation;
+    const thread: string = this.selectedThreadId; const project: string = this.selectedProjectId; if (!this.capabilities.modelSettings || !thread || !this.authenticated) { return; }
     const value = await this.rpc.request<ModelSettings>('GET', '/v1/threads/' + thread + '/model?projectId=' + encodeURIComponent(project), undefined, this.authorization());
-    if (this.selectedThreadId === thread && this.selectedProjectId === project) { this.selectedModel = value.model; this.selectedEffort = value.effort; this.selectedServiceTier = value.serviceTier || ''; this.modelDetail = value.model + ' · ' + (value.effort || '默认'); }
+    if (generation === this.generation && this.selectedThreadId === thread && this.selectedProjectId === project) { this.selectedModel = value.model; this.selectedEffort = value.effort; this.selectedServiceTier = value.serviceTier || ''; this.modelDetail = (this.models.find((m: ModelItem) => m.model === value.model)?.name || value.model) + ' · ' + (value.effort || '默认'); }
   }
   async applyModel(model: string, effort: string, serviceTier?: string): Promise<void> {
+    if (!this.capabilities.modelSettings) { throw new Error('当前智能体不支持修改模型'); }
     if (this.busy) { throw new Error('请等待当前操作完成'); }
-    if (!this.canControlProject) { throw new Error('仅可在可执行项目修改模型设置'); }
+    if (!this.canControlProject) { throw new Error('仅可在可执行会话修改模型设置'); }
+    if (!this.selectedThreadId && (!this.canCreateThread || this.requiresWorkspaceThread)) { throw new Error('请先选择已有会话'); }
+    const target = this.models.find((m: ModelItem) => m.model === model);
     if (serviceTier === undefined && (this.selectedServiceTier === 'priority' || this.selectedServiceTier === 'fast')) { serviceTier = this.models.find((m: ModelItem) => m.model === model)?.fastTier || ''; }
+    if (!target?.fastTier) { serviceTier = undefined; }
     this.busy = true;
     try {
       if (this.selectedThreadId) {
@@ -524,7 +629,7 @@ export class MobileSession extends UiState {
         const applied = await this.rpc.request<ModelSettings>('POST', '/v1/threads/model', body, this.authorization());
         model = applied.model; effort = applied.effort; serviceTier = applied.serviceTier || '';
       }
-      this.selectedModel = model; this.selectedEffort = effort; if (serviceTier !== undefined) { this.selectedServiceTier = serviceTier; } this.modelDetail = model + ' · ' + effort + (this.selectedThreadId ? ' · 已应用' : ' · 用于新任务');
+      this.selectedModel = model; this.selectedEffort = effort; if (serviceTier !== undefined || !target?.fastTier) { this.selectedServiceTier = serviceTier || ''; } this.modelDetail = (this.models.find((m: ModelItem) => m.model === model)?.name || model) + ' · ' + effort + (this.selectedThreadId ? ' · 已应用' : ' · 用于新任务');
     } finally { this.busy = false; }
   }
   private draftHash(project: string, thread: string, value: string, refs: string[], images: string[] = []): string { return hex(native.sha256(utf8(JSON.stringify(images.length ? [project, thread, value, refs, images] : refs.length ? [project, thread, value, refs] : [project, thread, value])))); }
@@ -534,7 +639,17 @@ export class MobileSession extends UiState {
     if (matches) { keys.push(currentKey); }
     if (keys.length) { const write = this.draftWrites.catch(() => {}).then(async () => { for (const key of keys) { const saved: string = await this.identity.get('images.' + key); await this.identity.put(key, ''); await this.identity.put('refs.' + key, ''); await this.identity.put('images.' + key, ''); if (saved) { for (const item of JSON.parse(saved) as DraftImage[]) { if (!this.attachments.some((current: DraftImage) => current.id === item.id)) { this.deleteImageFile(item); } } } } }); this.draftWrites = write; if (matches) { this.draft = ''; this.references = []; this.attachments = []; } await write; }
   }
-  private draftKey(): string { return 'draft.' + this.selectedProjectId + '.' + (this.selectedThreadId || 'new'); }
+  private threadDraftKey(projectId: string, threadId: string): string { return 'draft.' + this.selectedAgent + '.' + this.fingerprint + '.' + projectId + '.' + (threadId || 'new'); }
+  private draftKey(): string { return this.threadDraftKey(this.selectedProjectId, this.selectedThreadId); }
+  private async restoreDraft(): Promise<void> {
+    const key: string = this.draftKey();
+    if (this.selectedAgent === 'codex' && this.fingerprint === this.legacyGateway && !(await this.identity.get('migrated.' + key))) {
+      const old: string = 'draft.' + this.selectedProjectId + '.' + (this.selectedThreadId || 'new');
+      for (const prefix of ['', 'refs.', 'images.']) { if (!(await this.identity.get(prefix + key))) { await this.identity.put(prefix + key, await this.identity.get(prefix + old)); } }
+      await this.identity.put('migrated.' + key, 'true');
+    }
+    this.draft = await this.identity.get(key); await this.restoreReferences();
+  }
   async updateDraft(value: string): Promise<void> {
     this.draft = value; const key = this.draftKey();
     this.draftWrites = this.draftWrites.catch(() => {}).then(async () => { await this.identity.put(key, value); });
@@ -548,7 +663,7 @@ export class MobileSession extends UiState {
     this.suggestionText = !this.currentTurnId && suggestion?.sourceTurnId === latest ? suggestion.text : '';
     this.suggestionState = !this.currentTurnId && suggestion?.sourceTurnId === latest ? suggestion.state : 'idle';
     const key: string = this.connectionVersion + ':' + this.selectedThreadId + ':' + latest;
-    if (!this.nextSuggestionEnabled || !latest || this.currentTurnId || this.hasDraftContent || this.queueMessages.length > 0 || this.pendingSend || !this.canExecute || this.suggestionState !== 'idle' || this.suggestionPending || this.suggestionRequestKey === key) { return; }
+    if (!this.capabilities.suggestions || !this.nextSuggestionEnabled || !latest || this.currentTurnId || this.hasDraftContent || this.queueMessages.length > 0 || this.pendingSend || !this.canExecute || this.suggestionState !== 'idle' || this.suggestionPending || this.suggestionRequestKey === key) { return; }
     const project: string = this.selectedProjectId; const thread: string = this.selectedThreadId; const generation: number = this.generation;
     this.suggestionPending = true; this.suggestionRequestKey = key;
     const body: SuggestionBody = { projectId: project, sourceTurnId: latest };
@@ -556,7 +671,7 @@ export class MobileSession extends UiState {
       if (generation !== this.generation || thread !== this.selectedThreadId || project !== this.selectedProjectId || this.currentTurnId || this.suggestionTurnId !== latest || value.sourceTurnId !== latest) { return; }
       if (value.state === 'busy') { this.suggestionRequestKey = ''; return; }
       this.suggestionState = value.state; this.suggestionText = value.text;
-    }).catch(() => { if (generation === this.generation && thread === this.selectedThreadId) { this.suggestionRequestKey = ''; } }).finally(() => { this.suggestionPending = false; });
+    }).catch(() => { if (generation === this.generation && thread === this.selectedThreadId) { this.suggestionRequestKey = ''; } }).finally(() => { if (generation === this.generation) { this.suggestionPending = false; } });
   }
   async saveProjectCreationPath(path: string): Promise<void> {
     const value: string = path.trim();
@@ -587,33 +702,67 @@ export class MobileSession extends UiState {
     await this.createThread();
     await this.refreshNavigation();
   }
-  async createThread(): Promise<void> {
+  private async createWorkspaceThread(section: NavigationSection): Promise<void> {
+    if (this.busy || !this.authenticated || !section.workspaceId || !section.scopeProjectId) { throw new Error('请等待连接完成并选择工作区'); }
+    const projectId: string = section.scopeProjectId; const workspaceId: string = section.workspaceId;
+    if (!this.projects.some((p: ProjectItem) => p.id === projectId && p.capability === 'control')) { throw new Error('工作区目录仍在同步，请刷新后重试'); }
+    if (this.pendingCreation && (this.pendingCreation.projectId !== projectId || this.pendingCreation.workspaceId !== workspaceId)) { throw new Error('上次新建结果尚未核对，请在原工作区重试'); }
+    const hadPending: boolean = this.pendingCreation !== undefined;
+    const key: string = 'pendingCreate.' + this.selectedAgent + '.' + this.fingerprint;
+    this.busy = true; let created: ThreadItem | undefined;
+    try {
+      await this.refreshTask?.catch(() => {}); await this.draftWrites;
+      if (!this.pendingCreation) { this.pendingCreation = { projectId: projectId, workspaceId: workspaceId, requestId: encode(cryptoFramework.createRandom().generateRandomSync(24).data.slice().buffer as ArrayBuffer) }; }
+      await this.identity.put(key, JSON.stringify(this.pendingCreation));
+      const body: CreateThreadBody = { projectId: projectId, workspaceId: workspaceId, clientRequestId: this.pendingCreation.requestId };
+      created = await this.rpc.request<ThreadItem>('POST', '/v1/threads', body, this.authorization());
+      await this.identity.put(key, ''); this.pendingCreation = undefined; this.selectedProjectId = projectId;
+    } catch (error) {
+      if (!hadPending && error instanceof RemoteError && ['INVALID_REQUEST', 'PROJECT_FORBIDDEN', 'CREATION_NOT_STARTED'].includes(error.code)) { await this.identity.put(key, ''); this.pendingCreation = undefined; }
+      throw error as Error;
+    } finally { this.busy = false; }
+    if (created) { await this.selectThread(created); await this.refreshNavigation(); }
+  }
+  async createThread(section?: NavigationSection): Promise<void> {
+    if (section?.workspaceId) { await this.createWorkspaceThread(section); return; }
+    if (this.navigation?.sections.some((s: NavigationSection) => !!s.workspaceId)) { throw new Error('请点击工作区右侧的＋新建会话'); }
+    if (!this.canCreateThread) { throw new Error('当前智能体请先从侧栏选择已有会话'); }
     if (this.busy || !this.selectedProjectId) { throw new Error('请先选择项目'); }
     if (!this.projects.some((p: ProjectItem) => p.id === this.selectedProjectId && p.capability === 'control')) { throw new Error('只读项目不能创建任务'); }
     this.permissionMode = 'ask'; this.permissionMobileControl = true; this.fullAccessConfirmed = false;
     this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = '';
-    this.olderMessages = []; this.historyCursor = ''; this.changes = undefined; this.diffReview = undefined; this.suggestionText = ''; this.suggestionState = 'idle'; this.suggestionTurnId = ''; this.selectedThreadId = ''; this.selectedThreadName = '新任务'; this.messages = []; this.queueMessages = []; this.approvals = []; this.currentTurnId = ''; this.draft = await this.identity.get(this.draftKey()); await this.restoreReferences();
+    this.olderMessages = []; this.historyCursor = ''; this.changes = undefined; this.diffReview = undefined; this.suggestionText = ''; this.suggestionState = 'idle'; this.suggestionTurnId = ''; this.selectedThreadId = ''; this.selectedThreadName = '新任务'; this.messages = []; this.queueMessages = []; this.approvals = []; this.currentTurnId = ''; await this.restoreDraft();
   }
   async selectProject(projectId: string): Promise<void> {
     if (this.busy) { throw new Error('操作尚未完成'); }
     this.busy = true;
     try {
       const page = await this.rpc.request<ThreadPage>('GET', `/v1/threads?projectId=${encodeURIComponent(projectId)}`, undefined, this.authorization());
-      this.selectedProjectId = projectId; this.changes = undefined; this.diffReview = undefined; this.suggestionText = ''; this.suggestionState = 'idle'; this.threads = page.data; this.selectedThreadId = ''; this.permissionMode = 'ask'; this.permissionMobileControl = true; this.fullAccessConfirmed = false; this.selectedThreadName = this.projects.some((p: ProjectItem) => p.id === projectId && p.capability === 'control') ? '新任务' : '项目会话'; this.messages = []; this.queueMessages = []; this.olderMessages = []; this.historyCursor = ''; this.approvals = []; this.currentTurnId = ''; this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = ''; this.draft = await this.identity.get(this.draftKey()); await this.restoreReferences();
+      this.selectedProjectId = projectId; this.changes = undefined; this.diffReview = undefined; this.suggestionText = ''; this.suggestionState = 'idle'; this.threads = page.data; this.selectedThreadId = ''; this.permissionMode = 'ask'; this.permissionMobileControl = true; this.fullAccessConfirmed = false; this.selectedThreadName = this.projects.some((p: ProjectItem) => p.id === projectId && p.capability === 'control') ? '新任务' : '项目会话'; this.messages = []; this.queueMessages = []; this.olderMessages = []; this.historyCursor = ''; this.approvals = []; this.currentTurnId = ''; this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = ''; await this.restoreDraft();
     } finally { this.busy = false; }
+    await this.refreshExtensionCatalog();
   }
   async selectThread(thread: ThreadItem): Promise<void> {
     if (this.busy) { throw new Error('操作尚未完成'); }
     this.busy = true;
-    try { this.queueMessages = []; this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = ''; this.approvals = []; this.currentTurnId = ''; this.olderMessages = []; this.historyCursor = ''; this.changes = undefined; this.diffReview = undefined; this.suggestionText = ''; this.suggestionState = 'idle'; this.suggestionTurnId = ''; this.selectedThreadId = thread.id; this.selectedThreadName = thread.name; this.selectedModel = thread.model || ''; this.selectedEffort = ''; this.selectedServiceTier = ''; this.modelDetail = thread.model || '沿用会话模型'; this.draft = await this.identity.get(this.draftKey()); await this.restoreReferences(); await this.loadHistory(); await this.loadModelSettings(); await this.loadPermissions(); }
+    try { this.queueMessages = []; this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = ''; this.approvals = []; this.currentTurnId = ''; this.olderMessages = []; this.historyCursor = ''; this.changes = undefined; this.diffReview = undefined; this.suggestionText = ''; this.suggestionState = 'idle'; this.suggestionTurnId = ''; this.selectedThreadId = thread.id; this.selectedThreadName = thread.name; this.selectedModel = thread.model || ''; this.selectedEffort = ''; this.selectedServiceTier = ''; this.modelDetail = thread.model || '沿用会话模型'; await this.restoreDraft(); await this.loadHistory(); await this.loadModelSettings(); await this.loadPermissions(); }
     finally { this.busy = false; }
+    await this.refreshExtensionCatalog();
   }
-  async refresh(): Promise<void> {
-    if (this.busy || this.refreshing) { return; } this.refreshing = true;
-    try { await this.loadHistory(); } finally { this.refreshing = false; }
+  refresh(): Promise<void> {
+    if (this.busy) { return Promise.resolve(); }
+    if (this.refreshTask) { return this.refreshTask; }
+    this.refreshing = true;
+    const task: Promise<void> = this.loadHistory().finally(() => {
+      if (this.refreshTask === task) { this.refreshTask = undefined; this.refreshing = false; }
+    });
+    this.refreshTask = task;
+    return task;
   }
   async openChanges(turnId: string): Promise<void> {
+    if (!this.capabilities.changes) { return; }
     if (!this.selectedThreadId || !turnId || this.diffLoading) { return; }
+    const generation: number = this.generation;
     const thread: string = this.selectedThreadId; const project: string = this.selectedProjectId;
     this.diffLoading = true;
     try { const review = await this.rpc.request<ChangeSummary>('GET', '/v1/threads/' + thread + '/changes?projectId=' + encodeURIComponent(project) + '&turnId=' + encodeURIComponent(turnId), undefined, this.authorization());
@@ -636,16 +785,17 @@ export class MobileSession extends UiState {
   }
   private async loadHistory(): Promise<void> {
     if (!this.selectedProjectId || !this.selectedThreadId || !this.projects.some((p: ProjectItem) => p.id === this.selectedProjectId)) { return; }
+    const generation: number = this.generation;
     const projectAtStart: string = this.selectedProjectId; const threadAtStart: string = this.selectedThreadId;
     const suffix: string = `?projectId=${encodeURIComponent(projectAtStart)}`;
     const snapshot = await this.rpc.request<Snapshot>('GET', `/v1/threads/${this.selectedThreadId}/view${suffix}`, undefined, this.authorization());
-    if (this.selectedProjectId !== projectAtStart || this.selectedThreadId !== threadAtStart) { return; }
+    if (generation !== this.generation || this.selectedProjectId !== projectAtStart || this.selectedThreadId !== threadAtStart) { return; }
     this.changes = snapshot.changes;
     if (snapshot.backend.name && this.selectedThreadName !== snapshot.backend.name) { this.selectedThreadName = snapshot.backend.name; if (!this.busy) { this.refreshNavigation().catch(() => {}); } }
     this.asyncQuestions = snapshot.asyncQuestions || [];
     this.approvals = [...snapshot.approvals, ...this.asyncQuestions.filter((q: ApprovalItem) => !q.answered)];
     this.queueMessages = snapshot.messages.filter((m: SnapshotMessage) => ['queued', 'dispatching', 'nativeQueued', 'unknown'].includes(m.state));
-    if (snapshot.backend.permissions) { this.permissionMode = snapshot.backend.permissions.mode; this.permissionMobileControl = snapshot.backend.permissions.mobileControl; this.fullAccessConfirmed = this.permissionMode === 'full' && this.permissionMobileControl; }
+    if (snapshot.backend.permissions) { this.permissionOptions = snapshot.backend.permissions.options || []; this.permissionMode = snapshot.backend.permissions.mode; this.permissionMobileControl = snapshot.backend.permissions.mobileControl; this.fullAccessConfirmed = this.permissionConfirmation(this.permissionMode) && this.permissionMobileControl; }
     this.currentTurnId = snapshot.backend.turnId || ''; this.waiting = snapshot.backend.waiting;
     this.activityTitle = this.currentTurnId ? snapshot.activityTitle || (snapshot.history.activityTurnId === this.currentTurnId ? snapshot.history.activityTitle || '' : '') : '';
     if (this.pendingSend !== undefined && this.pendingSend.projectId === this.selectedProjectId && this.pendingSend.threadId === this.selectedThreadId) {
@@ -654,7 +804,7 @@ export class MobileSession extends UiState {
       if (recovered !== undefined) {
         this.lastSubmissionId = recovered.id; this.lastMessageState = recovered.state;
         await this.acknowledgeDraft(this.pendingSend.draftKey || this.draftKey(), this.pendingSend.hash, projectAtStart, threadAtStart);
-        await this.identity.put('pendingSend', ''); this.pendingSend = undefined;
+        await this.identity.put(this.pendingKey(), ''); this.pendingSend = undefined;
       }
     }
     const pending = snapshot.messages.find((m: SnapshotMessage) => m.id === this.lastSubmissionId);
@@ -669,9 +819,9 @@ export class MobileSession extends UiState {
       const existing = result.findIndex((m: MessageView) => m.id === live.id);
       const compaction: boolean = live.execution?.kind === 'compaction';
       if (existing < 0 && !compaction && !['running', 'waiting', 'pending'].includes(live.status)) { return; }
-      if (live.status === 'running' || existing < 0 || compaction) {
+      if (live.status === 'running' || live.status === 'waiting' || existing < 0 || compaction) {
         const view = new MessageView(live.id, live.role, live.text + (live.truncated ? '\n[较长输出仅显示末尾，完整内容请查看历史]' : ''), live.status);
-        view.execution = live.execution;
+        view.groupKey = live.groupKey || ''; view.execution = live.execution;
         view.images = live.images?.length ? live.images : (existing >= 0 ? result[existing].images : []);
         view.itemId = existing >= 0 ? result[existing].itemId : live.id;
         view.turnId = live.turnId || view.images[0]?.turnId || (existing >= 0 ? result[existing].turnId : '');
@@ -684,16 +834,16 @@ export class MobileSession extends UiState {
     const result: MessageView[] = [];
     history.data.slice().reverse().forEach((turn: HistoryTurn) => {
       turn.items.forEach((item: HistoryItem) => {
-        const before: number = result.length;
-        if (item.type === 'userMessage' && item.content !== undefined) {
-          const content = item.content.filter((c: TextInputItem) => c.type === 'text').map((c: TextInputItem) => c.text || '').join('\n');
-          result.push(new MessageView(item.clientId || item.id, 'user', content));
-        } else if (item.type === 'agentMessage' && item.text) {
-          result.push(new MessageView(item.id, 'assistant', item.text));
-        } else if (item.type === 'commandExecution') {
-          result.push(new MessageView(item.id, 'tool', item.execution?.kind === 'image' ? '' : `${item.command || '工具执行'}\n${(item.aggregatedOutput || '').slice(0, 4000)}`));
-        }
-        if (result.length > before) { const view: MessageView = result[result.length - 1]; view.question = item.asyncQuestion ? this.asyncQuestions.find((q: ApprovalItem) => q.id === item.asyncQuestion?.id) || item.asyncQuestion : undefined; view.images = item.images || []; view.itemId = item.id || ''; view.turnId = turn.id; view.hasMore = item.truncated === true; view.execution = item.execution; if (item.execution) { view.status = item.execution.status; } }
+        // The legacy type fallback keeps older Codex gateways compatible.
+        const role: string = item.role || (item.type === 'userMessage' ? 'user' : item.type === 'agentMessage' ? 'assistant' : item.type === 'commandExecution' ? 'tool' : '');
+        if (!['user', 'assistant', 'tool'].includes(role)) { return; }
+        const text: string = item.text !== undefined ? item.text : role === 'user' ? (item.content || []).filter((c: TextInputItem) => c.type === 'text').map((c: TextInputItem) => c.text || '').join('\n') : role === 'tool' ? (item.execution?.kind === 'image' ? '' : (item.command || '工具执行') + '\n' + (item.aggregatedOutput || '').slice(0, 4000)) : '';
+        if (role === 'assistant' && !text && !item.images?.length) { return; }
+        const view = new MessageView(item.clientId || item.id, role, text);
+        view.question = item.asyncQuestion ? this.asyncQuestions.find((q: ApprovalItem) => q.id === item.asyncQuestion?.id) || item.asyncQuestion : undefined;
+        view.images = item.images || []; view.itemId = item.readId || item.id; view.turnId = turn.id; view.hasMore = item.truncated === true;
+        view.execution = item.execution; view.groupKey = item.groupKey || ''; if (item.execution) { view.status = item.execution.status; }
+        result.push(view);
       });
     });
     return result;
@@ -707,7 +857,7 @@ export class MobileSession extends UiState {
       this.messages = [...older.filter((m: MessageView) => !this.messages.some((n: MessageView) => n.id === m.id)), ...this.messages];
     } finally { this.busy = false; }
   }
-  async readMessage(message: MessageView): Promise<void> { this.readingMessage = message; this.readingChunks = []; this.readingOffset = 0; this.readingTotal = 0; this.readingMore = true; await this.readNextChunk(); }
+  async readMessage(message: MessageView): Promise<void> { this.readingMarkdown = message.role === 'assistant'; this.readingMessage = message; this.readingChunks = []; this.readingOffset = 0; this.readingTotal = 0; this.readingMore = true; await this.readNextChunk(); }
   async readNextChunk(): Promise<void> {
     if (this.busy || !this.readingMessage || !this.readingMore) { return; } this.busy = true;
     try {

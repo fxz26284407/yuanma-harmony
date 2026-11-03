@@ -6,6 +6,8 @@ export struct MentionControls {
   @ObjectLink client: UiState;
   @Prop @Watch('draftChanged') draft: string = '';
   @Prop @Watch('draftChanged') catalogScope: string = '';
+  @Prop @Watch('requested') openVersion: number = 0;
+  private requested(): void { if (this.client.canControlProject && !this.client.busy) { this.typing = false; this.open = true; this.search(''); } }
   @State private open: boolean = false;
   @State private query: string = '';
   @State private error: string = '';
@@ -18,7 +20,7 @@ export struct MentionControls {
   @Builder
   private Menu() {
     Column({ space: 8 }) {
-      Text('插件、Skills 与浏览器').fontSize(13).fontColor(AppTheme.secondary).width('100%').padding({ left: 8 })
+      Text('技能与插件').fontSize(13).fontColor(AppTheme.secondary).width('100%').padding({ left: 8 })
       Search({ value: this.query, placeholder: '搜索 Mac 已安装的扩展' }).id('extension-search').height(44).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).onChange((value: string) => { this.search(value); })
       if (!this.client.extensionLoading && this.client.extensionTotal > this.client.extensionItems.length) { Text('共 ' + this.client.extensionTotal + ' 项，输入关键词查找更多').fontSize(11).fontColor(AppTheme.secondary).width('100%').padding({ left: 8 }) }
       if (this.client.extensionLoading) { LoadingProgress().height(22).width(22).color(AppTheme.accent) }

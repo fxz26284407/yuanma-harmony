@@ -1,10 +1,24 @@
-import { ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest, ProjectManagementRequest } from './UiTypes';
+import { BackendCapabilities, ThreadAction, PermissionOption, ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest, ProjectManagementRequest } from './UiTypes';
 import { common } from '@kit.AbilityKit';
 import { PairMaterial, KnownMac, ClaimResult, ClaimBody, ProofBody, LoginBody, LoginProof, PairStatus, LoginResult, ProjectItem, ThreadItem, ThreadPage, SnapshotBackend, SnapshotMessage, ExecutionSummary, LiveProgress, Snapshot, TextInputItem, HistoryItem, HistoryTurn, HistoryPage, HistoryChunk, MessageView, MessagePayload, PendingSend, SendBody, QueuedMessage, SteerBody, OperationResult, QuestionOption, QuestionItem, QuestionAnswer, QuestionReplyBody, ApprovalItem, ApprovalReplyBody, ApprovalReplyResult, InterruptBody, InterruptResult, CancelBody, NavigationThread, NavigationProject, NavigationSection, NavigationData, ModelItem, ModelSettings, ModelSettingsBody, CreateThreadBody, BackendStatus } from './UiTypes';
 export * from './UiTypes';
 
 @Observed
 export abstract class UiState {
+  selectedAgent: string = 'codex';
+  get containerName(): string { return this.selectedAgent === 'deepseek' ? '工作区' : '项目'; }
+  get agentName(): string { return this.selectedAgent === 'deepseek' ? 'DeepSeek' : 'Codex'; }
+  abstract switchAgent(kind: string): Promise<void>;
+  get activeContainerName(): string {
+    const current = this.navigation?.recentThreads?.find((t: NavigationThread) => t.id === this.selectedThreadId);
+    const section = this.navigation?.sections.find((s: NavigationSection) => (s.threads || []).some((t: NavigationThread) => t.id === this.selectedThreadId) || (s.id === current?.sectionId && s.projects.length === 0));
+    return section?.name || this.projects.find((p: ProjectItem) => p.id === this.selectedProjectId)?.name || '';
+  }
+  backendKind: string = '';
+  get threadActions(): ThreadAction[] {
+    return this.capabilities.threadActions || (this.selectedAgent === 'codex' ? [{ action: 'rename', label: '重新命名' }, { action: 'pin', label: '固定', activeLabel: '取消固定' }, { action: 'project', label: '项目' }, { action: 'section', label: '分区' }, { action: 'archive', label: '封存' }] : []);
+  }
+  capabilities: BackendCapabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false };
   activityTitle: string = '';
   projectCreationPath: string = '~/workspace';
   abstract saveProjectCreationPath(path: string): Promise<void>;
@@ -12,7 +26,7 @@ export abstract class UiState {
   nextSuggestionEnabled: boolean = true;
   suggestionText: string = '';
   suggestionState: string = 'idle';
-  get showSuggestion(): boolean { return this.nextSuggestionEnabled && this.suggestionState === 'ready' && this.suggestionText.length > 0 && !!this.selectedThreadId && !this.currentTurnId && !this.hasDraftContent && this.canExecute; }
+  get showSuggestion(): boolean { return this.capabilities.suggestions && this.nextSuggestionEnabled && this.suggestionState === 'ready' && this.suggestionText.length > 0 && !!this.selectedThreadId && !this.currentTurnId && !this.hasDraftContent && this.canExecute; }
   abstract saveSuggestionSetting(enabled: boolean): Promise<void>;
   abstract acceptSuggestion(): Promise<void>;
   changes?: ChangeSummary;
@@ -28,6 +42,13 @@ export abstract class UiState {
   recovering: boolean = false;
   recoveryIssue: string = '';
   connectionVersion: number = 0;
+  permissionOptions: PermissionOption[] = [];
+  get permissionChoices(): PermissionOption[] {
+    if (this.permissionOptions.length || this.selectedAgent !== 'codex') { return this.permissionOptions; }
+    return [{ value: 'ask', label: '要求批准', description: '编辑项目外文件或访问网络前，先询问你' }, { value: 'auto', label: '代我批准', description: '由 Codex 对需要提升权限的操作进行自动审核', requiresConfirmation: true }, { value: 'full', label: '完整存取权', description: '可访问互联网及这台 Mac 上的文件', requiresConfirmation: true }];
+  }
+  get permissionLabel(): string { const option = this.permissionChoices.find((o: PermissionOption) => o.value === this.permissionMode); return option?.shortLabel || option?.label || '自定义'; }
+  permissionConfirmation(mode: string): boolean { return this.permissionChoices.find((o: PermissionOption) => o.value === mode)?.requiresConfirmation === true; }
   permissionMode: string = 'ask';
   permissionMobileControl: boolean = true;
   fullAccessConfirmed: boolean = false;
@@ -49,9 +70,12 @@ export abstract class UiState {
   imageProgress: number = 0;
   userFacingError(error: Error): string { if (error.name === 'LinkError' || (!this.authenticated && this.recovering)) { return this.hasKnownMac ? '' : '暂时无法连接 Mac，请检查网络后重试'; } return error.message.slice(0, 200); }
   get canControlProject(): boolean { return this.authenticated && this.projects.some((p: ProjectItem) => p.id === this.selectedProjectId && p.capability === 'control'); }
-  get canExecute(): boolean { return this.canControlProject && (!this.selectedThreadId || this.permissionMobileControl); }
+  get canCreateThread(): boolean { return this.capabilities.createThreads !== undefined ? this.capabilities.createThreads : this.selectedAgent === 'codex'; }
+  get requiresWorkspaceThread(): boolean { return !this.selectedThreadId && (this.navigation?.sections.some((s: NavigationSection) => !!s.workspaceId) || false); }
+  get canExecute(): boolean { return this.canControlProject && (!!this.selectedThreadId || (this.canCreateThread && !this.requiresWorkspaceThread)) && (!this.selectedThreadId || this.permissionMobileControl); }
   get permissionNotice(): string {
     if (!this.canControlProject || !this.selectedThreadId || this.permissionMobileControl) { return ''; }
+    if (this.permissionConfirmation(this.permissionMode)) { return '请确认以“' + this.permissionLabel + '”控制此会话'; }
     return this.permissionMode === 'full' ? '此会话使用完整存取权，请先确认手机控制权限' : '此会话使用自定义权限，请先选择审批权限';
   }
   abstract loadPermissions(): Promise<void>;
@@ -91,6 +115,7 @@ export abstract class UiState {
   queueMessages: SnapshotMessage[] = [];
   approvals: ApprovalItem[] = [];
   historyCursor: string = "";
+  readingMarkdown: boolean = false;
   readingChunks: string[] = [];
   readingOffset: number = 0;
   readingTotal: number = 0;
@@ -122,7 +147,7 @@ export abstract class UiState {
   abstract applyModel(model: string, effort: string, serviceTier?: string): Promise<void>;
   abstract updateDraft(value: string): Promise<void>;
   abstract createProject(name: string): Promise<void>;
-  abstract createThread(): Promise<void>;
+  abstract createThread(section?: NavigationSection): Promise<void>;
   abstract selectProject(projectId: string): Promise<void>;
   abstract selectThread(thread: ThreadItem): Promise<void>;
   abstract refresh(): Promise<void>;

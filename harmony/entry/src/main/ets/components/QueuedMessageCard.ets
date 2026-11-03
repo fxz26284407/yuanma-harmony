@@ -10,7 +10,7 @@ export struct QueuedMessageCard {
   @Prop canSteer: boolean = false;
   onCancel: () => void = () => {};
   onSteer: () => void = () => {};
-  private status(): string { return this.message.state === 'queued' ? (this.message.error ? '暂未发送' : '待发送 · ' + this.queuePosition) : this.message.state === 'unknown' ? '正在核对发送结果' : '已交给 Codex，正在核对回执'; }
+  private status(): string { return this.message.state === 'queued' ? (this.message.error ? '暂未发送' : '待发送 · ' + this.queuePosition) : this.message.state === 'unknown' ? '正在核对发送结果' : '已交给智能体，正在核对回执'; }
   build() {
     Column({ space: 4 }) {
       Row({ space: 6 }) {

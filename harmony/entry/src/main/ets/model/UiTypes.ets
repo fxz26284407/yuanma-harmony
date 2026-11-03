@@ -1,6 +1,8 @@
 import { AuthChallenge } from '../security/AuthTranscript';
 
 export interface PairMaterial { profile: string; gatewayId: string; publicKey: string; pairingId: string; secret: string; expiresAt: number; relayUrl?: string; }
+export interface PendingThreadCreation { projectId: string; workspaceId: string; requestId: string; }
+export interface AgentSelection { projectId: string; threadId: string; threadName: string; }
 export interface KnownMac { gatewayId: string; publicKey: string; relayUrl?: string; }
 export interface ClaimResult { claimId: string; claimToken: string; deviceId: string; expiresAt: number; challenge: AuthChallenge; }
 export interface ClaimBody { pairingId: string; secret: string; name: string; signingPublicKey: string; }
@@ -15,7 +17,7 @@ export interface ThreadPage { data: ThreadItem[]; nextCursor?: string; }
 export interface SnapshotBackend { name?: string; latestTurnId?: string; active: boolean; turnId: string | null; waiting: boolean; permissions?: PermissionState; }
 export interface SnapshotMessage { id: string; state: string; client_id: string; preview?: string; previewTruncated?: boolean; error?: string; }
 export interface ExecutionSummary { kind: string; label: string; status: string; durationMs?: number; exitCode?: number; }
-export interface LiveProgress { turnId?: string; images?: ImageReference[]; execution?: ExecutionSummary; id: string; role: string; text: string; status: string; truncated: boolean; }
+export interface LiveProgress { groupKey?: string; turnId?: string; images?: ImageReference[]; execution?: ExecutionSummary; id: string; role: string; text: string; status: string; truncated: boolean; }
 export interface ChangedFile { id: string; path: string; kind: string; added: number; removed: number; patches: number; }
 export interface ChangeSummary { turnId: string; version: string; files: ChangedFile[]; added: number; removed: number; partial: boolean; }
 export interface DiffChunk { fileId: string; version: string; text: string; nextOffset?: number; totalChars: number; }
@@ -23,11 +25,12 @@ export interface SuggestionView { sourceTurnId: string; state: string; text: str
 export interface SuggestionBody { projectId: string; sourceTurnId: string; }
 export interface Snapshot { suggestion?: SuggestionView; activityTitle?: string; asyncQuestions?: ApprovalItem[]; changes?: ChangeSummary; history: HistoryPage; approvals: ApprovalItem[]; progress: LiveProgress[]; backend: SnapshotBackend; messages: SnapshotMessage[]; }
 export interface TextInputItem { type: string; text?: string; }
-export interface HistoryItem { asyncQuestion?: ApprovalItem; images?: ImageReference[]; execution?: ExecutionSummary; truncated?: boolean; totalChars?: number; id: string; type: string; text?: string; clientId?: string; content?: TextInputItem[]; command?: string; aggregatedOutput?: string; }
+export interface HistoryItem { role?: string; readId?: string; groupKey?: string; asyncQuestion?: ApprovalItem; images?: ImageReference[]; execution?: ExecutionSummary; truncated?: boolean; totalChars?: number; id: string; type: string; text?: string; clientId?: string; content?: TextInputItem[]; command?: string; aggregatedOutput?: string; }
 export interface HistoryTurn { id: string; status: string; items: HistoryItem[]; }
 export interface HistoryPage { activityTitle?: string; activityTurnId?: string; data: HistoryTurn[]; nextCursor?: string; }
 export interface HistoryChunk { text: string; nextOffset?: number; totalChars: number; }
 export class MessageView {
+  groupKey: string = '';
   question?: ApprovalItem;
   images: ImageReference[] = [];
   execution?: ExecutionSummary;
@@ -57,21 +60,25 @@ export interface InterruptResult { requested: boolean; turnId: string; }
 export interface CancelBody { type: string; clientOperationId: string; submissionId: string; }
 export interface NavigationThread extends ThreadItem { projectId: string; pinned?: boolean; sectionId?: string; sectionName?: string; }
 export interface NavigationProject extends ProjectItem { threads: NavigationThread[]; }
-export interface NavigationSection { id: string; name: string; projects: NavigationProject[]; threads?: NavigationThread[]; }
+export interface NavigationSection { workspaceId?: string; scopeProjectId?: string; capability?: string; id: string; name: string; projects: NavigationProject[]; threads?: NavigationThread[]; }
 export interface DesktopSyncStatus { pending: number; appliedAt: number; error: string; }
-export interface NavigationData { desktopSync?: DesktopSyncStatus; newProjectCapability?: string; pinned?: NavigationThread[]; sections: NavigationSection[]; projects: NavigationProject[]; recent: NavigationThread[]; recentThreads?: NavigationThread[]; }
-export interface ModelItem { model: string; name: string; defaultEffort: string; efforts: string[]; fastTier?: string; }
+export interface NavigationData { scopeProjects?: ProjectItem[]; desktopSync?: DesktopSyncStatus; newProjectCapability?: string; pinned?: NavigationThread[]; sections: NavigationSection[]; projects: NavigationProject[]; recent: NavigationThread[]; recentThreads?: NavigationThread[]; }
+export interface ModelOption { value: string; label: string; }
+export interface ThreadAction { action: string; label: string; activeLabel?: string; }
+export interface BackendCapabilities { threadActions?: ThreadAction[]; createThreads?: boolean; modelSettings: boolean; permissions: boolean; suggestions: boolean; steer: boolean; images: boolean; extensions: boolean; changes: boolean; }
+export interface ModelItem { effortOptions?: ModelOption[]; model: string; name: string; defaultEffort: string; efforts: string[]; fastTier?: string; }
 export interface ModelSettings { model: string; effort: string; serviceTier?: string; }
 export interface ModelSettingsBody { projectId: string; threadId: string; model: string; effort: string; serviceTier?: string | null; }
-export interface CreateThreadBody { approvalMode?: string; confirmFullAccess?: boolean; projectId: string; model?: string; effort?: string; serviceTier?: string | null; }
-export interface BackendStatus { backendReady: boolean; }
+export interface CreateThreadBody { workspaceId?: string; clientRequestId?: string; approvalMode?: string; confirmFullAccess?: boolean; projectId: string; model?: string; effort?: string; serviceTier?: string | null; }
+export interface BackendStatus { backendReady: boolean; backendKind?: string; availableBackends?: string[]; capabilities?: BackendCapabilities; }
 
 
 export interface DisplaySettings { reduceTransparency: boolean; reduceMotion: boolean; appearance?: string; }
 
 export interface ExtensionItem { id: string; kind: string; name: string; description: string; iconId?: string; }
 export interface ExtensionPage { items: ExtensionItem[]; total: number; skillCount?: number; pluginCount?: number; browserCount?: number; refreshed?: boolean; }
-export interface PermissionState { mode: string; mobileControl: boolean; approvalPolicy?: string; reviewer?: string; sandbox?: string; }
+export interface PermissionOption { value: string; label: string; shortLabel?: string; description?: string; requiresConfirmation?: boolean; }
+export interface PermissionState { options?: PermissionOption[]; mode: string; mobileControl: boolean; approvalPolicy?: string; reviewer?: string; sandbox?: string; }
 export interface PermissionBody { projectId: string; mode: string; confirmFullAccess: boolean; }
 export interface ImageReference { id: string; threadId: string; turnId: string; itemId: string; index: number; label: string; }
 export interface ImageChunk { data: string; mime: string; totalBytes: number; nextOffset?: number; version: string; }

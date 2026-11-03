@@ -33,7 +33,7 @@ export struct TranscriptView {
   private icon(group: TranscriptGroup): Resource {
     const kind = group.items[0].execution?.kind;
     if (kind === 'image') { return $r('sys.symbol.ohos_photo'); }
-    if (kind === 'read' || kind === 'fileChange') { return $r('sys.symbol.doc_text'); }
+    if (kind === 'read' || kind === 'write' || kind === 'edit' || kind === 'fileChange') { return $r('sys.symbol.doc_text'); }
     if (kind === 'list') { return $r('sys.symbol.folder'); }
     if (kind === 'search' || kind === 'webSearch') { return $r('sys.symbol.magnifyingglass'); }
     if (kind === 'agent') { return $r('sys.symbol.person_2'); }
@@ -42,7 +42,7 @@ export struct TranscriptView {
   }
   private groups(): TranscriptGroup[] {
     const groups: TranscriptGroup[] = [];
-    this.messages.forEach((m: MessageView) => { const prior = groups.length > 0 ? groups[groups.length - 1] : undefined; if (m.role === 'tool' && m.execution?.kind !== 'compaction' && prior?.tool && prior.items[0].execution?.kind === m.execution?.kind && prior.items[0].status === m.status) { prior.items.push(m); } else { groups.push(new TranscriptGroup(m)); } }); return groups;
+    this.messages.forEach((m: MessageView) => { const prior = groups.length > 0 ? groups[groups.length - 1] : undefined; if (m.role === 'tool' && m.execution?.kind !== 'compaction' && prior?.tool && prior.items[0].execution?.kind === m.execution?.kind && prior.items[0].status === m.status && prior.items[0].groupKey === m.groupKey) { prior.items.push(m); } else { groups.push(new TranscriptGroup(m)); } }); return groups;
   }
   @Builder
   private Images(message: MessageView) {
