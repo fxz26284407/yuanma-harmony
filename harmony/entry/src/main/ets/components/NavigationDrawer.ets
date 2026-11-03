@@ -137,7 +137,7 @@ export struct NavigationDrawer {
   build() {
     Column({ space: 16 }) {
       Row({ space: 8 }) {
-        Image($r('app.media.yuanma_logo_transparent')).id('navigation-logo').width(34).height(34).objectFit(ImageFit.Contain).draggable(false).accessibilityLevel('no')
+        Image($r('app.media.yuanma_logo_transparent')).id('navigation-logo').width(34).height(34).objectFit(ImageFit.Contain).colorFilter(AppTheme.text).draggable(false).accessibilityLevel('no')
         Text('远码').id('navigation-brand').fontSize(20).fontWeight(FontWeight.Bold).fontColor(AppTheme.text).layoutWeight(1)
         Button() { SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(18).fontColor([AppTheme.secondary]) }
           .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('刷新 Mac 导航')
