@@ -59,37 +59,96 @@ npm run build:harmony
 
 Noise-C 会按固定提交下载到 `.local/noise-c`，由 NAPI 模块链接；保留该源码的上游许可，不修改固定版本。
 
-## 连接你的 Mac
+## 连接你的 Mac：npm 安装并扫码
 
-先按 [网关仓库说明](https://github.com/fxz26284407/yuanma-gateway#readme) 启动本地网关和局域网中继，再生成二维码：
+已安装远码 App 的用户只需在 Mac 安装网关，无需克隆网关源码或安装 DevEco Studio；上面的构建步骤仅供客户端开发者使用。
+
+### 1. 准备 Mac 与局域网中继
+
+需要 macOS、Node.js 22，以及已登录并与 Codex 桌面共用的 app-server（当前适配版本为 0.166.0）。默认共享入口为 `~/.local/share/yuanma/shared/app-server.sock`；该入口必须指向桌面实际使用的同用户私有 socket。安装 npm 包不会自动创建共享后端。
+
+当前 npm 版本仍需要 Relay；“不填 Relay 地址即可直接连接 Mac”的功能尚未发布。可使用局域网内已有中继，或在装有 Docker 的 Mac / 内网主机启动：
 
 ```sh
-npm run pairing:qr -- --relay-url ws://192.168.1.10:19088
+docker run -d --name yuanma-relay \
+  --restart unless-stopped \
+  -p 192.168.1.10:19088:8080 \
+  fxz26284407/yuanma-relay:2026.11.03
 ```
 
-这里独立的 `--` 是 npm 的参数分隔符，用于把后面的 `--relay-url` 传给脚本，并非重复。若直接运行脚本，写成 `node scripts/pairing-qr.mjs --relay-url ws://192.168.1.10:19088`，不加中间的分隔符。
+将 `192.168.1.10` 替换为中继宿主机实际的局域网 IP；已有中继时不要重复启动。手机、Mac 和中继须处于互通内网，防火墙允许该内网端口，不使用访客隔离网络，也不配置公网端口转发。
 
-以上命令在网关仓库执行，示例 IP 需替换为中继主机实际的局域网 IP。手机与 Mac 必须处于互通内网，不能使用访客隔离网络；手机上的 `127.0.0.1` 不是 Mac。手机扫码后按 Mac 上的授权流程连接。中继内网 IP 和端口不写死在手机源码中，地址更新可在“设置 → 连接 → Mac”重新扫码；同一 Mac 沿用原设备身份及项目授权。
+### 2. 安装网关
 
-客户端与 Mac 使用固定公钥 Noise 加密通道及 HUKS 签名登录。中继只转发密文，HTTP/WS 接入仍保留应用层加密和设备权限边界。
+在 Mac 终端执行（使用 nvm 管理 Node.js 时）：
+
+```sh
+nvm install 22
+nvm use 22
+npm install -g @fxz26284407/yuanma-gateway@0.1.0 --registry=https://registry.npmjs.org
+yuanma-gateway --version
+```
+
+已有 Node.js 22 时可直接安装 npm 包。不要使用 `sudo` 启动网关；应与 Codex 桌面使用同一 Mac 用户。SQLite 原生依赖缺少预编译包时，需要 Xcode Command Line Tools。
+
+### 3. 初始化并生成二维码
+
+```sh
+yuanma-gateway init --relay-url ws://192.168.1.10:19088
+yuanma-gateway pair
+```
+
+初始化时按提示选择项目并确认密钥保存与项目访问策略。若共享 socket 不在默认位置，在 `init` 命令后增加 `--codex-socket /实际路径/app-server.sock`。当前版本配对后所有发现的项目和工作区默认可执行，初始项目列表不是权限白名单；会话执行审批独立管理。
+
+`pair` 会确保网关已启动并在终端显示短时有效二维码。命令可在任意目录执行，无需进入网关源码目录。二维码包含配对凭据，请勿公开分享。
+
+已有源码安装和配对数据的用户，先登记原配置与状态目录，再执行 `pair`，避免创建另一套身份：
+
+```sh
+yuanma-gateway init --config /原配置绝对路径/config.json --state-dir /原状态目录绝对路径
+yuanma-gateway pair
+```
+
+### 4. 手机扫码连接
+
+打开远码 App 的连接页面，扫描终端二维码；已配对用户选择“扫码更新连接地址”。同一 Mac 沿用原设备身份及项目授权，成功登录后保存连接地址。
+
+手机不能使用 `127.0.0.1` 或 `localhost` 代表 Mac。IP 变化后重新生成二维码：
+
+```sh
+yuanma-gateway pair --relay-url ws://192.168.1.20:19088
+```
+
+将示例地址换成实际中继地址。客户端与 Mac 继续使用固定公钥 Noise 加密通道及设备鉴权，中继只转发密文。
+
+### 日常使用与升级
+
+```sh
+yuanma-gateway status
+yuanma-gateway start
+yuanma-gateway stop
+```
+
+升级后重启网关：
+
+```sh
+npm install -g @fxz26284407/yuanma-gateway@latest --registry=https://registry.npmjs.org
+yuanma-gateway restart
+```
+
+配置、密钥、配对和消息账本保存在 npm 安装目录之外，升级时保留。不要删除原状态目录、重新生成身份或卸载手机 App 来完成升级。
 
 ## 新建项目、默认路径与自动授权
 
-### 1. 确认 Mac 已开启自动授权
+### 1. 完成网关安装与配对
 
-先更新客户端和 [Mac 网关](https://github.com/fxz26284407/yuanma-gateway)，完成配对并连接。在手机“设置 → 连接 → 新项目权限”查看当前策略：显示“自动可执行”才可以从手机新建项目；“自动只读”或“逐项授权”均不支持创建。
+按上文通过 npm 安装网关并扫码连接。当前 npm 网关的项目策略为：所有发现的项目和工作区默认可执行，新项目自动取得执行权限。项目执行权限与会话审批分别管理，新对话仍默认“要求批准”。
 
-策略由 Mac 管理。如果需要开启，在 **网关仓库目录**执行：
+可在 Mac 任意目录查看已配对设备：
 
 ```sh
-node dist/cli.js devices --state-dir .local/gateway
-node dist/cli.js device-project-policy \
-  --state-dir .local/gateway \
-  --device-id '替换为上一条输出中该手机的 id' \
-  --capability control
+yuanma-gateway devices
 ```
-
-设备 ID 使用已配对手机的 `id`，`--state-dir` 使用正在运行的网关状态目录。策略变更后手机会重新鉴权，必要时点击重新连接已配对的 Mac。更多策略说明见 [网关的新建项目与自动授权说明](https://github.com/fxz26284407/yuanma-gateway#移动端新建项目与自动授权)。
 
 ### 2. 设置默认创建路径
 
@@ -106,15 +165,15 @@ node dist/cli.js device-project-policy \
 
 例如，父目录是 `~/Projects`、项目名为 `my-app`，网关就在 Mac 上创建 `~/Projects/my-app` 并登记 Codex 项目。创建成功后，手机自动取得该项目执行权限并进入新对话，无需再单独批准此项目。
 
-自动授权沿用 Mac 为此设备设置的新项目策略，也适用于网关后续发现的、符合策略范围的其他项目；手动撤掉的项目不会自动加回。项目授权保存在 Mac 网关状态目录，重启网关后保留。项目执行权限与会话审批模式分别管理，新对话仍默认“要求批准”。
+当前 npm 网关会为发现的项目和工作区提供默认执行权限。项目授权保存在 Mac 网关状态目录，重启网关后保留。项目执行权限与会话审批模式分别管理，新对话仍默认“要求批准”。
 
-若提示先设为“自动可执行”，按第 1 步调整 Mac 策略并重连；目录错误需检查 Mac 路径与写入权限；网关不支持创建时，先更新并重启 Mac 网关。
+若仍提示需要开启“自动可执行”，请核对实际连接的网关版本并按上文升级、重启和重连；目录错误需检查 Mac 路径与写入权限；网关不支持创建时，先更新并重启 Mac 网关。
 
 ## 项目菜单与桌面同步
 
 侧栏长按项目可选择“重新命名”或“分区”，分区列表支持“不分区”。只读或未授权项目不能修改。侧栏顶部使用透明背景的远码 Logo。
 
-手机新增项目、改名或调整分区后，手机立即更新，侧栏会显示桌面同步状态。当前版本请按以下顺序同步桌面：**完全退出桌面应用 → 稍等并刷新手机侧栏，确认显示“已同步” → 重新打开桌面应用**。仅关闭桌面窗口不算退出。同步需同时更新 [Mac 网关](https://github.com/fxz26284407/yuanma-gateway)，待同步变更在网关重启后保留。
+手机新增项目、改名或调整分区后，手机立即更新，侧栏会显示桌面同步状态。当前版本请按以下顺序同步桌面：**完全退出桌面应用 → 稍等并刷新手机侧栏，确认显示“已同步” → 重新打开桌面应用**。仅关闭桌面窗口不算退出。同步需按上文通过 npm 更新并重启 Mac 网关，待同步变更在网关重启后保留。
 
 ## 目录
 
