@@ -1,21 +1,23 @@
 # 远码 · 鸿蒙客户端（yuanma-harmony）
 
-远码是独立开发的 HarmonyOS 原生 Codex 移动工作端：连接你的 Mac，继续原会话、查看执行过程与代码差异、处理审批和选项，并在断线后恢复工作。
+远码是独立开发的 HarmonyOS 原生 Codex 局域网移动工作端：在同一局域网内连接你的 Mac，继续原会话、查看执行过程与代码差异、处理审批和选项，并在断线后恢复工作。
 
 ## 项目系列
 
 [远码 Yuanma · GitHub Project](https://github.com/users/fxz26284407/projects/2)
 
 - [鸿蒙原生客户端](https://github.com/fxz26284407/yuanma-harmony)（本仓库）
-- [Mac 网关与公网密文中继](https://github.com/fxz26284407/yuanma-gateway)
+- [Mac 网关与局域网密文中继](https://github.com/fxz26284407/yuanma-gateway)
 
 ## 部署架构
 
 ![远码部署架构](docs/assets/deployment.svg)
 
-手机和 Mac 主动连接同一个公网 WS 入口；业务内容通过 Noise 在两端加密，中继只负责转发。Codex Desktop 与 Mac 网关连接同一个 app-server，任务、文件操作和审批发生在 Mac。SQLite 消息账本与设备授权也保存在 Mac。
+手机、Mac 和用户自行部署的中继处于同一局域网，两端连接同一个内网 WS 地址，例如 `ws://192.168.1.10:19088`。业务内容通过 Noise 在手机与 Mac 之间加密，中继只负责转发。Codex Desktop 与 Mac 网关连接同一个 app-server，任务、文件操作和审批发生在 Mac。SQLite 消息账本与设备授权也保存在 Mac。
 
-公网服务器只安装 Docker 中继，默认端口映射为 `19088:8080`。有域名时可增加支持 WebSocket Upgrade 的 Nginx；直接使用 `ws://服务器地址:19088` 时省略 Nginx。
+中继运行在 Mac Docker 或同一局域网主机，宿主机内网端口 `19088` 映射到容器 `8080`。无需公网域名或内网穿透；仅允许可信内网设备访问，不配置路由器公网端口转发。离开该局域网后，此部署方式无法连接 Mac。
+
+局域网限定的是手机与 Mac 的连接范围；Mac 上的 Codex、DeepSeek 及模型服务仍按各自配置联网，构建依赖也需从相应软件源获取，不表示全部功能可离线使用。
 
 [架构图源文件](docs/deployment.archify.json)
 
@@ -26,7 +28,7 @@
 - 在手机新建 Mac 项目，设置默认创建路径，并按 Mac 端策略自动取得项目执行权限。
 - 消息排队、引导、审批、原生选项、图片、文档上传、文件差异和执行状态。
 - 模型、推理强度、高速模式、会话权限与扩展引用。
-- 从 Mac 二维码读取中继地址，保存配对身份，支持换网和重新连接。
+- 从 Mac 二维码读取中继地址，保存配对身份，支持内网地址更新和重新连接。
 - Codex / DeepSeek 通用下一步建议，各用自己的模型和额度；采用后成为可编辑草稿，不自动发送。
 - 文件图标入口支持文档单个 50 MiB、每条消息附件合计 100 MiB、最多 4 个；图片合计仍为 8 MiB。
 - 输入 `@` 搜索技能与插件，支持“请用@技能”直接触发，不再提供独立 `@` 按钮。
@@ -59,15 +61,15 @@ Noise-C 会按固定提交下载到 `.local/noise-c`，由 NAPI 模块链接；�
 
 ## 连接你的 Mac
 
-先按 [网关仓库说明](https://github.com/fxz26284407/yuanma-gateway#readme) 启动本地网关和公网中继，再生成二维码：
+先按 [网关仓库说明](https://github.com/fxz26284407/yuanma-gateway#readme) 启动本地网关和局域网中继，再生成二维码：
 
 ```sh
-npm run pairing:qr -- --relay-url ws://your-relay.example.com
+npm run pairing:qr -- --relay-url ws://192.168.1.10:19088
 ```
 
-这里独立的 `--` 是 npm 的参数分隔符，用于把后面的 `--relay-url` 传给脚本，并非重复。若直接运行脚本，写成 `node scripts/pairing-qr.mjs --relay-url ws://relay.example.com`，不加中间的分隔符。
+这里独立的 `--` 是 npm 的参数分隔符，用于把后面的 `--relay-url` 传给脚本，并非重复。若直接运行脚本，写成 `node scripts/pairing-qr.mjs --relay-url ws://192.168.1.10:19088`，不加中间的分隔符。
 
-以上命令在网关仓库执行。手机扫码后按 Mac 上的授权流程连接。中继域名和端口不写死在手机源码中，地址更新可在“设置 → 连接 → Mac”重新扫码；同一 Mac 沿用原设备身份及项目授权。
+以上命令在网关仓库执行，示例 IP 需替换为中继主机实际的局域网 IP。手机与 Mac 必须处于互通内网，不能使用访客隔离网络；手机上的 `127.0.0.1` 不是 Mac。手机扫码后按 Mac 上的授权流程连接。中继内网 IP 和端口不写死在手机源码中，地址更新可在“设置 → 连接 → Mac”重新扫码；同一 Mac 沿用原设备身份及项目授权。
 
 客户端与 Mac 使用固定公钥 Noise 加密通道及 HUKS 签名登录。中继只转发密文，HTTP/WS 接入仍保留应用层加密和设备权限边界。
 
