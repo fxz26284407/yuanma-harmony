@@ -36,8 +36,8 @@
     {
       "id": "ingress",
       "type": "cloud",
-      "label": "Nginx · 可选域名入口",
-      "sublabel": "HTTP/WS · Upgrade",
+      "label": "局域网 · 内网 IP 入口",
+      "sublabel": "HTTP/WS · 19088",
       "pos": [
         365,
         40
@@ -214,7 +214,7 @@
   "boundaries": [
     {
       "kind": "region",
-      "label": "公网服务器 · yuanma-gateway",
+      "label": "局域网主机 · yuanma-gateway",
       "wraps": [
         "ingress",
         "relay"
@@ -244,7 +244,7 @@
     {
       "from": "ingress",
       "to": "relay",
-      "label": "反代 HTTP/WS"
+      "label": "宿主端口映射"
     },
     {
       "from": "gateway",
@@ -280,8 +280,8 @@
       "dot": "cyan",
       "title": "两端同一入口",
       "items": [
-        "Mac 与手机使用同一 ws://relay.example.com",
-        "不使用域名时，两端直接连接服务器 :19088；省略 Nginx"
+        "Mac 与手机使用同一 ws://192.168.1.10:19088",
+        "手机与 Mac 位于互通内网，中继仅向可信内网开放"
       ]
     },
     {
@@ -296,8 +296,8 @@
       "dot": "amber",
       "title": "服务与数据边界",
       "items": [
-        "服务器只部署密文中继，不安装 Codex、不保存 Mac 私钥",
-        "任务在 Mac 执行；换网后重新鉴权并按原消息 ID 核对回执"
+        "内网主机只部署密文中继，不安装 Codex、不保存 Mac 私钥",
+        "任务在 Mac 执行；离开局域网后无法连接，恢复后核对回执"
       ]
     }
   ]
