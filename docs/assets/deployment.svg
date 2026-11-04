@@ -597,7 +597,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <rect width="100%" height="100%" fill="url(#grid)"/>
 
         <!-- Boundaries (behind everything) -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="公网服务器 · yuanma-gateway" x="343" y="16" width="659" height="118" rx="12" class="c-region" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="局域网主机 · yuanma-gateway" x="343" y="16" width="659" height="118" rx="12" class="c-region" stroke-width="1"/>
 
         <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" data-composition-frame-label="工作 Mac · yuanma-gateway + Codex" x="18" y="306" width="1014" height="358" rx="12" class="c-region" stroke-width="1"/>
 
@@ -608,7 +608,7 @@ rect.c-bg-rect { fill: var(--bg); }
         </g>
         <g data-graph-role="automatic-crossover" style="--step:1">
           <path data-graph-role="automatic-crossover-underlay" d="M 595 70 L 750 70" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="ingress" data-edge-to="relay" data-edge-label="反代 HTTP/WS" data-edge-key="1" data-composition-points="595,70;750,70" data-composition-crossover="halo" data-composition-independent="true" d="M 595 70 L 750 70" class="a-default" data-animate="edge" style="--step: 1;" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="ingress" data-edge-to="relay" data-edge-label="宿主端口映射" data-edge-key="1" data-composition-points="595,70;750,70" data-composition-crossover="halo" data-composition-independent="true" d="M 595 70 L 750 70" class="a-default" data-animate="edge" style="--step: 1;" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:2">
           <path data-graph-role="automatic-crossover-underlay" d="M 750 360 L 734 360 Q 726 360 726 352 L 726 92 Q 726 84 718 84 L 595 84" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -646,19 +646,19 @@ rect.c-bg-rect { fill: var(--bg); }
         <text x="132.5" y="91" class="t-muted" font-size="9" text-anchor="middle">扫码配对 / HUKS 签名</text>
         </g>
 
-        <g id="node-ingress" data-node-id="ingress" data-node-label="Nginx · 可选域名入口" tabindex="0" role="button" aria-label="聚焦Nginx · 可选域名入口，HTTP/WS · Upgrade, 公网服务器 · yuanma-gateway" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="HTTP/WS · Upgrade" data-node-context="公网服务器 · yuanma-gateway">
-          <title>Nginx · 可选域名入口 · HTTP/WS · Upgrade · 公网服务器 · yuanma-gateway</title>
+        <g id="node-ingress" data-node-id="ingress" data-node-label="局域网 · 内网 IP 入口" tabindex="0" role="button" aria-label="聚焦局域网 · 内网 IP 入口，HTTP/WS · 19088, 局域网主机 · yuanma-gateway" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="HTTP/WS · 19088" data-node-context="局域网主机 · yuanma-gateway">
+          <title>局域网 · 内网 IP 入口 · HTTP/WS · 19088 · 局域网主机 · yuanma-gateway</title>
           <rect x="365" y="40" width="230" height="74" rx="8" class="c-mask"/>
           <rect x="365" y="40" width="230" height="74" rx="8" class="c-cloud" data-animate="node" style="--step: 1; --flow-node-name: archify-relay-node-3;" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(371 46) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
-          <text data-node-label="" x="480" y="75" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Nginx · 可选域名入口</text>
-        <text x="480" y="91" class="t-muted" font-size="9" text-anchor="middle">HTTP/WS · Upgrade</text>
+          <text data-node-label="" x="480" y="75" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">局域网 · 内网 IP 入口</text>
+        <text x="480" y="91" class="t-muted" font-size="9" text-anchor="middle">HTTP/WS · 19088</text>
         </g>
 
-        <g id="node-relay" data-node-id="relay" data-node-label="Docker · 密文中继" tabindex="0" role="button" aria-label="聚焦Docker · 密文中继，宿主 19088 → 容器 8080, 公网服务器 · yuanma-gateway" aria-pressed="false" data-node-kind="backend" data-node-sublabel="宿主 19088 → 容器 8080" data-node-context="公网服务器 · yuanma-gateway">
-          <title>Docker · 密文中继 · 宿主 19088 → 容器 8080 · 公网服务器 · yuanma-gateway</title>
+        <g id="node-relay" data-node-id="relay" data-node-label="Docker · 密文中继" tabindex="0" role="button" aria-label="聚焦Docker · 密文中继，宿主 19088 → 容器 8080, 局域网主机 · yuanma-gateway" aria-pressed="false" data-node-kind="backend" data-node-sublabel="宿主 19088 → 容器 8080" data-node-context="局域网主机 · yuanma-gateway">
+          <title>Docker · 密文中继 · 宿主 19088 → 容器 8080 · 局域网主机 · yuanma-gateway</title>
           <rect x="750" y="40" width="230" height="74" rx="8" class="c-mask"/>
           <rect x="750" y="40" width="230" height="74" rx="8" class="c-backend" data-animate="node" style="--step: 2; --flow-node-name: archify-relay-node-6;" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(756 46) scale(0.6875)">
@@ -734,9 +734,9 @@ rect.c-bg-rect { fill: var(--bg); }
           <rect x="261.2" y="57" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="295" y="67" class="t-edge-security" font-size="8" text-anchor="middle">主动 WS 连接</text>
         </g>
-        <g data-edge-from="ingress" data-edge-to="relay" data-edge-label="反代 HTTP/WS" data-edge-key="1">
+        <g data-edge-from="ingress" data-edge-to="relay" data-edge-label="宿主端口映射" data-edge-key="1">
           <rect x="638.7" y="50" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="672.5" y="60" class="t-edge-default" font-size="8" text-anchor="middle">反代 HTTP/WS</text>
+          <text x="672.5" y="60" class="t-edge-default" font-size="8" text-anchor="middle">宿主端口映射</text>
         </g>
         <g data-edge-from="gateway" data-edge-to="ingress" data-edge-label="主动 WS 连接" data-edge-key="2">
           <rect x="692.2" y="202" width="67.6" height="14" rx="3" class="c-mask"/>
@@ -760,9 +760,9 @@ rect.c-bg-rect { fill: var(--bg); }
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
-        <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="region" data-composition-frame-label="公网服务器 · yuanma-gateway">
+        <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="region" data-composition-frame-label="局域网主机 · yuanma-gateway">
           <rect data-graph-role="structural-frame-label-mask" x="347" y="20" width="155.79999999999998" height="16" rx="3" class="c-mask"/>
-          <text data-boundary-label="" x="351" y="33" class="t-cloud" font-size="9" font-weight="600">公网服务器 · yuanma-gateway</text>
+          <text data-boundary-label="" x="351" y="33" class="t-cloud" font-size="9" font-weight="600">局域网主机 · yuanma-gateway</text>
         </g>
 
         <g data-graph-role="structural-frame-label" data-composition-frame-id="1" data-composition-frame-kind="region" data-composition-frame-label="工作 Mac · yuanma-gateway + Codex">
