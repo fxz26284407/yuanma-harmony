@@ -138,7 +138,7 @@ export struct WorkspaceView {
         Column({ space: 6 }) {
           if (!this.client.authenticated) { Text('首次使用，请先在自己的 Mac 安装网关并自行部署中继。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%') }
           Row() {
-            Hyperlink('https://github.com/fxz26284407/yuanma-gateway#readme', '查看网关搭建指南（GitHub）').id('gateway-guide-connect').color(this.client.appearance === 'light' ? '#287889' : '#86CDDD').height(44).accessibilityText('在系统浏览器打开 GitHub 网关搭建指南')
+            Hyperlink('https://github.com/fxz26284407/yuanma-harmony#readme', '查看网关搭建指南（GitHub）').id('gateway-guide-connect').color(this.client.appearance === 'light' ? '#287889' : '#86CDDD').height(44).accessibilityText('在系统浏览器打开 GitHub 网关搭建指南')
           }.width('100%').padding({ left: 16, right: 16 }).justifyContent(FlexAlign.Center).backgroundColor(AppTheme.subtle).borderRadius(14)
         }.width('100%')
         if (this.client.authenticated) {
