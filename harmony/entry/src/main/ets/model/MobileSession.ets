@@ -7,6 +7,7 @@ import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { image } from '@kit.ImageKit';
 import { SuggestionView, SuggestionBody, ChangeSummary, DiffChunk, DraftImage, ImageUploadBody, ImageUploadResult, RemoveImagesBody, ThreadManagementRequest, ThreadManagementBody, ThreadManagementResult } from './UiTypes';
 import { ExtensionItem, ExtensionPage, PermissionState, PermissionBody, ImageReference, ImageChunk } from './UiTypes';
+import { AgentCommand, AgentCommandBody, AgentCommandResult, PendingAgentCommand } from './UiTypes';
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
@@ -15,13 +16,97 @@ import { HuksSigner } from '../security/HuksSigner';
 import { authTranscript, AuthChallenge, AuthContext } from '../security/AuthTranscript';
 import native from 'libcodexnoise.so';
 import { encode, decode, hex, utf8 } from '../security/Bytes';
-import { SecureRpc, relayEndpoint, RemoteError } from '../net/SecureRpc';
+import { SecureRpc, connectionEndpoint, RemoteError } from '../net/SecureRpc';
 
 import { DisplaySettings, UiState, PairMaterial, KnownMac, ClaimResult, ClaimBody, ProofBody, LoginBody, LoginProof, PairStatus, LoginResult, ProjectItem, ThreadItem, ThreadPage, SnapshotBackend, SnapshotMessage, ExecutionSummary, LiveProgress, Snapshot, TextInputItem, HistoryItem, HistoryTurn, HistoryPage, HistoryChunk, MessageView, MessagePayload, PendingSend, SendBody, QueuedMessage, SteerBody, OperationResult, QuestionOption, QuestionItem, QuestionAnswer, QuestionReplyBody, ApprovalItem, ApprovalReplyBody, ApprovalReplyResult, InterruptBody, InterruptResult, CancelBody, NavigationThread, NavigationProject, NavigationSection, NavigationData, ModelItem, ModelSettings, ModelSettingsBody, CreateThreadBody, BackendStatus } from './UiState';
 export * from './UiState';
 
 @Observed
 export class MobileSession extends UiState {
+  private pendingAgentCommand?: PendingAgentCommand;
+  private agentCommandKey(): string { return 'agentCommand.' + this.draftKey(); }
+  async runAgentCommand(action: string, argument: string = '', fromDraft: boolean = false): Promise<void> {
+    if (this.busy || !this.canExecute) { throw new Error('请先连接可执行会话，并等待当前操作完成'); }
+    if (!this.agentCommands.some((c: AgentCommand) => c.name === action.split('.')[0])) { throw new Error('当前网关或智能体尚未支持此命令'); }
+    if (argument.length > 4000 || (action === 'goal' && !argument.trim())) { throw new Error('请填写 1 到 4000 个字符的目标或任务内容'); }
+    if (action === 'compact' && argument) { throw new Error('/compact 不接受参数'); }
+    if (action.includes('.') && (!this.capabilities.modeControl || !this.selectedThreadId)) { throw new Error('当前会话不提供此模式控制'); }
+    if (fromDraft && (this.references.length || this.attachments.length)) { throw new Error('模式命令暂不接受附件或技能引用，请先保留或处理这些内容'); }
+    if (this.pendingSend) { throw new Error('请先核对上一条消息的发送结果'); }
+    if (this.pendingAgentCommand) {
+      const previous = this.pendingAgentCommand;
+      await this.recoverAgentCommand();
+      if (this.pendingAgentCommand) {
+        if (previous.body.action === action) { throw new Error('上一条同类命令结果仍待核对，请勿重复执行'); }
+        // Keep the unresolved receipt; a new explicit stop/cancel must remain possible.
+        await this.identity.put(this.agentCommandKey() + '.' + previous.body.clientOperationId, JSON.stringify(previous));
+        await this.identity.put(this.agentCommandKey(), ''); this.pendingAgentCommand = undefined; this.commandPending = false;
+      } else if (previous.body.action === action && previous.body.argument === argument) { return; }
+    }
+    this.busy = true;
+    const sourceDraftKey: string = this.draftKey();
+    try {
+      if (!this.selectedThreadId) {
+        const creation: CreateThreadBody = { projectId: this.selectedProjectId, model: this.selectedModel || undefined, effort: this.selectedEffort || undefined, serviceTier: this.selectedServiceTier || null, approvalMode: this.permissionMode, confirmFullAccess: this.fullAccessConfirmed };
+        const thread = await this.rpc.request<ThreadItem>('POST', '/v1/threads', creation, this.authorization());
+        this.selectedThreadId = thread.id; this.selectedThreadName = thread.name; this.runtime = {};
+        await this.identity.put(this.draftKey(), this.draft);
+      }
+    } catch (error) { this.busy = false; throw error as Error; }
+    const key: string = this.agentCommandKey();
+    const body: AgentCommandBody = { type: 'agent.command', projectId: this.selectedProjectId, threadId: this.selectedThreadId, clientOperationId: encode(cryptoFramework.createRandom().generateRandomSync(16).data.slice().buffer as ArrayBuffer), action: action, argument: argument, expectedGoalVersion: this.runtime.goal?.version };
+    try {
+      this.pendingAgentCommand = { body: body, draft: fromDraft ? this.draft : undefined, sourceDraftKey: sourceDraftKey, goalObjective: this.runtime.goal?.objective }; this.commandPending = true;
+      await this.identity.put(key, JSON.stringify(this.pendingAgentCommand));
+      this.commandFeedback = '正在提交命令…';
+      try {
+        const result = await this.rpc.request<AgentCommandResult>('POST', '/v1/commands', body, this.authorization());
+        await this.applyCommandResult(result, key);
+      } catch (error) {
+        const failure = error as Error;
+        if (!this.pendingAgentCommand) { throw failure; }
+        if ((failure.name === 'LinkError' && failure.message.includes('未发送')) || (failure instanceof RemoteError && ['UNSUPPORTED_COMMAND', 'INVALID_REQUEST', 'THREAD_PENDING', 'TURN_BUSY', 'PROJECT_FORBIDDEN', 'THREAD_MISMATCH', 'AUTH_REQUIRED', 'IDEMPOTENCY_CONFLICT', 'READ_ONLY_BACKEND'].includes(failure.code))) {
+          await this.identity.put(key, ''); this.pendingAgentCommand = undefined; this.commandPending = false; this.commandFeedback = failure.message;
+        } else { this.commandFeedback = '命令结果待确认，正在核对；请勿重复发送'; }
+        throw failure;
+      }
+      await this.loadHistory();
+    } finally { this.busy = false; }
+  }
+  private async applyCommandResult(result: AgentCommandResult, key: string): Promise<void> {
+    if (key !== this.agentCommandKey() || !this.pendingAgentCommand || this.pendingAgentCommand.body.clientOperationId !== result.id) { return; }
+    this.commandFeedback = result.detail;
+    if (result.state !== 'succeeded' && result.state !== 'failed') { return; }
+    const pending = this.pendingAgentCommand;
+    if (result.state === 'succeeded' && pending?.draft !== undefined && this.draft === pending.draft) { await this.updateDraft(''); }
+    if (result.state === 'succeeded' && pending?.draft !== undefined && pending.sourceDraftKey && pending.sourceDraftKey !== this.draftKey() && await this.identity.get(pending.sourceDraftKey) === pending.draft) { await this.identity.put(pending.sourceDraftKey, ''); }
+    if (result.submissionId) { this.lastSubmissionId = result.submissionId; this.lastMessageState = 'queued'; }
+    await this.identity.put(key, '');
+    if (key === this.agentCommandKey() && this.pendingAgentCommand?.body.clientOperationId === result.id) { this.pendingAgentCommand = undefined; this.commandPending = false; }
+    if (result.state === 'failed') { throw new Error(result.detail); }
+  }
+  private async recoverAgentCommand(snapshot?: Snapshot): Promise<void> {
+    const pending = this.pendingAgentCommand;
+    if (!pending || pending.body.projectId !== this.selectedProjectId || pending.body.threadId !== this.selectedThreadId) { return; }
+    try {
+      const key: string = this.agentCommandKey(); const generation: number = this.generation;
+      const result = await this.rpc.request<AgentCommandResult>('GET', '/v1/agent-commands/' + encodeURIComponent(pending.body.clientOperationId), undefined, this.authorization());
+      if (generation === this.generation && key === this.agentCommandKey()) {
+        if (result.state === 'unknown') {
+          const action: string = pending.body.action; const goal = this.runtime.goal; const plan = this.runtime.plan;
+          const sameGoal: boolean = !!goal && goal.objective === pending.goalObjective;
+          const goalObserved: boolean = (action === 'goal' && !!goal && goal.objective === pending.body.argument) || (action === 'goal.clear' && goal === null) || (action === 'goal.pause' && sameGoal && goal?.status === 'paused') || (action === 'goal.resume' && sameGoal && (goal?.status === 'active' || goal?.status === 'complete'));
+          const modeObserved: boolean = !!plan && !plan.workflow && !pending.body.argument && ((action === 'plan' && (plan.pending ? !plan.active : plan.active)) || (action === 'plan.off' && !(plan.pending ? !plan.active : plan.active)));
+          const queued = snapshot?.messages.find((m: SnapshotMessage) => m.client_id === 'agent-command:' + pending.body.clientOperationId);
+          if (goalObserved || modeObserved || !!queued) {
+            await this.applyCommandResult({ id: result.id, state: 'succeeded', detail: '当前原生状态已符合请求；原命令回执仍未确认，未重新执行', submissionId: queued?.id }, key);
+            return;
+          }
+        }
+        await this.applyCommandResult(result, key);
+      }
+    } catch (_) { /* Keep the original request ID and draft; never replay a control operation. */ }
+  }
   private attachmentRoot: string = '';
   private imageRoot: string = '';
   private imageCache: Map<string, string> = new Map<string, string>();
@@ -108,6 +193,7 @@ export class MobileSession extends UiState {
   private pendingKey(): string { return 'pendingSend.' + this.selectedAgent + '.' + this.fingerprint; }
   private selectionKey(): string { return 'selection.' + this.selectedAgent + '.' + this.fingerprint; }
   private async loadAgent(): Promise<void> {
+    this.runtime = {}; this.commandFeedback = ''; this.commandPending = false; this.pendingAgentCommand = undefined;
     let cached: string = await this.identity.get('knownMac');
     if (!cached) {
       cached = (await this.identity.get('knownMac.codex')) || (await this.identity.get('knownMac.deepseek'));
@@ -152,7 +238,7 @@ export class MobileSession extends UiState {
     const key = await this.identity.transport();
     try { this.checkGeneration(generation); this.transportPublic = key.publicKey;
       this.signingPublic = encode(await this.signer.publicKey()); this.checkGeneration(generation);
-      await this.rpc.connect(key, mac.publicKey, mac.gatewayId, mac.relayUrl);
+      await this.rpc.connect(key, mac.publicKey, mac.gatewayId, mac.endpoint || mac.relayUrl, mac.connectionMode || 'relay');
       let info: GatewayInfo;
       try { info = await this.rpc.request<GatewayInfo>('GET', '/v1/gateway-info'); }
       catch (error) { if (error instanceof RemoteError && (error.code === 'NOT_FOUND' || error.code === 'AUTH_REQUIRED')) { requireGatewayVersion(); } throw error as Error; }
@@ -174,12 +260,13 @@ export class MobileSession extends UiState {
       typeof material.publicKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(material.publicKey) || typeof material.secret !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(material.secret) ||
       typeof material.pairingId !== 'string' || !material.pairingId || material.pairingId.length > 200 || !Number.isSafeInteger(material.expiresAt) || material.expiresAt <= Date.now()) { throw new Error('配对材料无效或已过期'); }
     requireGatewayVersion(material.gatewayVersion);
-    const endpoint: string = relayEndpoint(material.relayUrl);
+    const mode: string = material.connectionMode === undefined ? 'relay' : material.connectionMode;
+    const endpoint: string = connectionEndpoint(material.endpoint || material.relayUrl, mode);
     if (this.mac !== undefined && (this.mac.gatewayId !== material.gatewayId || this.mac.publicKey !== material.publicKey)) { throw new Error('Mac 身份变化，请先明确断开旧身份后重新确认'); }
     const previousMac: KnownMac | undefined = this.mac;
     this.reconnectEnabled = true; this.busy = true; const generation = ++this.generation;
     try {
-      const mac: KnownMac = { gatewayId: material.gatewayId, publicKey: material.publicKey, relayUrl: endpoint };
+      const mac: KnownMac = { gatewayId: material.gatewayId, publicKey: material.publicKey, endpoint: endpoint, connectionMode: mode };
       await this.connect(mac, generation);
       const existingId: string = await this.identity.get(`device.${mac.gatewayId}`);
       this.checkGeneration(generation);
@@ -236,7 +323,7 @@ export class MobileSession extends UiState {
   }
   private uploadLimit(value: number | undefined, maximum: number, fallback: number): number { return value !== undefined && Number.isSafeInteger(value) && value > 0 ? Math.min(value, maximum) : fallback; }
   private checkGeneration(generation: number): void { if (generation !== this.generation) { const error = new Error('已取消旧连接操作'); error.name = 'LinkError'; throw error; } }
-  private clearConnection(): void { this.activityTitle = ''; this.models = []; this.backendKind = ''; this.uploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 }; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
+  private clearConnection(): void { this.activityTitle = ''; this.runtime = {}; this.commandFeedback = ''; this.models = []; this.backendKind = ''; this.uploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 }; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
   private connectionLost(reason: string = 'transport'): void {
     console.info('CM_CONNECTION reset reason=' + reason);
     this.generation++; this.rpc.close(); this.clearConnection();
@@ -296,6 +383,13 @@ export class MobileSession extends UiState {
     return `Bearer ${this.token}`;
   }
   async send(projectId: string, threadId: string, content: string): Promise<void> {
+    const command = content.trim().match(/^\/(goal|plan|compact)(?:\s+([\s\S]*))?$/);
+    if (command) {
+      let action: string = command[1]; let argument: string = (command[2] || '').trim();
+      if (action === 'goal' && ['pause', 'resume', 'clear', 'cancel'].includes(argument)) { action += '.' + (argument === 'cancel' ? 'clear' : argument); argument = ''; }
+      else if (action === 'plan' && argument === 'off') { action = 'plan.off'; argument = ''; }
+      await this.runAgentCommand(action, argument, true); return;
+    }
     if (this.busy || (content.trim().length === 0 && this.references.length === 0 && this.attachments.length === 0)) { throw new Error('请输入指令或添加附件，并等待上一操作完成'); }
     if (!this.projects.some((p: ProjectItem) => p.id === projectId && p.capability === 'control')) { throw new Error('该项目仅允许阅读，请在 Mac 调整设备授权'); }
     if (this.pendingSend !== undefined && (!threadId || this.pendingSend.projectId !== projectId || this.pendingSend.threadId !== threadId)) { throw new Error('上一条发送结果未知，请先恢复原会话核对'); }
@@ -715,6 +809,9 @@ export class MobileSession extends UiState {
   private draftKey(): string { return this.threadDraftKey(this.selectedProjectId, this.selectedThreadId); }
   private async restoreDraft(): Promise<void> {
     this.activityTitle = '';
+    this.runtime = {}; this.commandFeedback = '';
+    const pendingCommand: string = await this.identity.get(this.agentCommandKey());
+    this.pendingAgentCommand = pendingCommand ? JSON.parse(pendingCommand) as PendingAgentCommand : undefined; this.commandPending = this.pendingAgentCommand !== undefined;
     const key: string = this.draftKey();
     if (this.selectedAgent === 'codex' && this.fingerprint === this.legacyGateway && !(await this.identity.get('migrated.' + key))) {
       const old: string = 'draft.' + this.selectedProjectId + '.' + (this.selectedThreadId || 'new');
@@ -772,8 +869,8 @@ export class MobileSession extends UiState {
       this.projects = [...this.projects.filter((p: ProjectItem) => p.id !== project.id), project];
       this.selectedProjectId = project.id;
     } finally { this.busy = false; }
-    await this.createThread();
     await this.refreshNavigation();
+    await this.createThread();
   }
   private async createWorkspaceThread(section: NavigationSection): Promise<void> {
     if (this.busy || !this.authenticated || !section.workspaceId || !section.scopeProjectId) { throw new Error('请等待连接完成并选择工作区'); }
@@ -798,6 +895,8 @@ export class MobileSession extends UiState {
   }
   async createThread(section?: NavigationSection): Promise<void> {
     if (section?.workspaceId) { await this.createWorkspaceThread(section); return; }
+    const project = this.navigation?.projects.find((p: NavigationProject) => p.id === this.selectedProjectId);
+    if (project?.workspaceId) { await this.createWorkspaceThread({ id: project.id, name: project.name, projects: [], workspaceId: project.workspaceId, scopeProjectId: project.id }); return; }
     if (this.navigation?.sections.some((s: NavigationSection) => !!s.workspaceId)) { throw new Error('请点击工作区右侧的＋新建会话'); }
     if (!this.canCreateThread) { throw new Error('当前智能体请先从侧栏选择已有会话'); }
     if (this.busy || !this.selectedProjectId) { throw new Error('请先选择项目'); }
@@ -863,6 +962,8 @@ export class MobileSession extends UiState {
     const suffix: string = `?projectId=${encodeURIComponent(projectAtStart)}`;
     const snapshot = await this.rpc.request<Snapshot>('GET', `/v1/threads/${this.selectedThreadId}/view${suffix}`, undefined, this.authorization());
     if (generation !== this.generation || this.selectedProjectId !== projectAtStart || this.selectedThreadId !== threadAtStart) { return; }
+    if (snapshot.capabilities) { this.capabilities = snapshot.capabilities; }
+    this.runtime = snapshot.backend.runtime || {}; this.commandPending = this.pendingAgentCommand !== undefined;
     this.changes = snapshot.changes;
     if (snapshot.backend.name && this.selectedThreadName !== snapshot.backend.name) { this.selectedThreadName = snapshot.backend.name; if (!this.busy) { this.refreshNavigation().catch(() => {}); } }
     this.asyncQuestions = snapshot.asyncQuestions || [];
@@ -876,7 +977,6 @@ export class MobileSession extends UiState {
       const activity: LiveProgress | undefined = snapshot.progress.slice().reverse().find((p: LiveProgress) => p.turnId === this.currentTurnId && ['running', 'waiting', 'pending'].includes(p.status) && p.execution?.kind !== 'reasoning');
       this.activityTitle = activity?.execution?.label || (this.waiting ? '等待操作…' : activity?.role === 'assistant' ? '正在生成回复…' : '正在思考…');
     }
-
     if (snapshot.backend.active && !this.activityTitle) { this.activityTitle = this.waiting ? '等待操作…' : '正在思考…'; }
     if (snapshot.backend.active && snapshot.backend.statusKnown === false) { this.activityTitle = '执行状态待确认…'; }
     if (this.pendingSend !== undefined && this.pendingSend.projectId === this.selectedProjectId && this.pendingSend.threadId === this.selectedThreadId) {
@@ -910,7 +1010,7 @@ export class MobileSession extends UiState {
         if (existing >= 0) { result[existing] = view; } else { result.push(view); }
       }
     });
-    if (this.selectedProjectId === projectAtStart && this.selectedThreadId === threadAtStart) { this.messages = result; this.updateSuggestion(snapshot); }
+    if (this.selectedProjectId === projectAtStart && this.selectedThreadId === threadAtStart) { this.messages = result; this.updateSuggestion(snapshot); await this.recoverAgentCommand(snapshot); }
   }
   private historyMessages(history: HistoryPage): MessageView[] {
     const result: MessageView[] = [];

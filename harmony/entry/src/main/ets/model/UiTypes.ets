@@ -1,9 +1,9 @@
 import { AuthChallenge } from '../security/AuthTranscript';
 
-export interface PairMaterial { gatewayVersion?: string; profile: string; gatewayId: string; publicKey: string; pairingId: string; secret: string; expiresAt: number; relayUrl?: string; }
+export interface PairMaterial { gatewayVersion?: string; profile: string; gatewayId: string; publicKey: string; pairingId: string; secret: string; expiresAt: number; relayUrl?: string; endpoint?: string; connectionMode?: string; }
 export interface PendingThreadCreation { projectId: string; workspaceId: string; requestId: string; }
 export interface AgentSelection { projectId: string; threadId: string; threadName: string; }
-export interface KnownMac { gatewayId: string; publicKey: string; relayUrl?: string; }
+export interface KnownMac { gatewayId: string; publicKey: string; relayUrl?: string; endpoint?: string; connectionMode?: string; }
 export interface ClaimResult { claimId: string; claimToken: string; deviceId: string; expiresAt: number; challenge: AuthChallenge; }
 export interface ClaimBody { pairingId: string; secret: string; name: string; signingPublicKey: string; }
 export interface ProofBody { claimId: string; challengeId: string; signature: string; }
@@ -14,7 +14,15 @@ export interface LoginResult { accessToken: string; expiresAt: number; deviceId:
 export interface ProjectItem { id: string; name: string; capability: string; }
 export interface ThreadItem { id: string; name: string; status: string; model?: string; }
 export interface ThreadPage { data: ThreadItem[]; nextCursor?: string; }
-export interface SnapshotBackend { name?: string; latestTurnId?: string; active: boolean; statusKnown?: boolean; turnId: string | null; waiting: boolean; permissions?: PermissionState; }
+export interface AgentGoal { objective: string; status: string; version: string; tokensUsed?: number; tokenBudget?: number; automatic?: boolean; }
+export interface AgentPlan { active: boolean; pending: boolean; workflow?: boolean; }
+export interface ContextUsage { used: number; limit: number; estimated: boolean; updatedAt: number; }
+export interface AgentRuntime { goal?: AgentGoal | null; plan?: AgentPlan; context?: ContextUsage; }
+export interface AgentCommand { name: string; description: string; }
+export interface AgentCommandBody { type: string; projectId: string; threadId: string; clientOperationId: string; action: string; argument: string; expectedGoalVersion?: string; }
+export interface PendingAgentCommand { body: AgentCommandBody; draft?: string; sourceDraftKey?: string; goalObjective?: string; }
+export interface AgentCommandResult { id: string; state: string; detail: string; submissionId?: string; }
+export interface SnapshotBackend { runtime?: AgentRuntime; name?: string; latestTurnId?: string; active: boolean; statusKnown?: boolean; turnId: string | null; waiting: boolean; permissions?: PermissionState; }
 export interface SnapshotMessage { id: string; state: string; client_id: string; preview?: string; previewTruncated?: boolean; error?: string; }
 export interface ExecutionSummary { kind: string; label: string; status: string; durationMs?: number; exitCode?: number; }
 export interface LiveProgress { readId?: string; groupKey?: string; turnId?: string; images?: ImageReference[]; execution?: ExecutionSummary; id: string; role: string; text: string; status: string; truncated: boolean; }
@@ -23,7 +31,7 @@ export interface ChangeSummary { turnId: string; version: string; files: Changed
 export interface DiffChunk { fileId: string; version: string; text: string; nextOffset?: number; totalChars: number; }
 export interface SuggestionView { sourceTurnId: string; state: string; text: string; }
 export interface SuggestionBody { projectId: string; sourceTurnId: string; }
-export interface Snapshot { suggestion?: SuggestionView; activityTitle?: string; asyncQuestions?: ApprovalItem[]; changes?: ChangeSummary; history: HistoryPage; approvals: ApprovalItem[]; progress: LiveProgress[]; backend: SnapshotBackend; messages: SnapshotMessage[]; }
+export interface Snapshot { capabilities?: BackendCapabilities; suggestion?: SuggestionView; activityTitle?: string; asyncQuestions?: ApprovalItem[]; changes?: ChangeSummary; history: HistoryPage; approvals: ApprovalItem[]; progress: LiveProgress[]; backend: SnapshotBackend; messages: SnapshotMessage[]; }
 export interface TextInputItem { type: string; text?: string; }
 export interface HistoryItem { references?: ExtensionItem[]; role?: string; readId?: string; groupKey?: string; asyncQuestion?: ApprovalItem; images?: ImageReference[]; execution?: ExecutionSummary; truncated?: boolean; totalChars?: number; id: string; type: string; text?: string; clientId?: string; content?: TextInputItem[]; command?: string; aggregatedOutput?: string; }
 export interface HistoryTurn { id: string; status: string; items: HistoryItem[]; }
@@ -60,13 +68,13 @@ export interface InterruptBody { projectId: string; threadId: string; turnId: st
 export interface InterruptResult { requested: boolean; turnId: string; }
 export interface CancelBody { type: string; clientOperationId: string; submissionId: string; }
 export interface NavigationThread extends ThreadItem { projectId: string; pinned?: boolean; sectionId?: string; sectionName?: string; }
-export interface NavigationProject extends ProjectItem { threads: NavigationThread[]; }
+export interface NavigationProject extends ProjectItem { workspaceId?: string; threads: NavigationThread[]; }
 export interface NavigationSection { workspaceId?: string; scopeProjectId?: string; capability?: string; id: string; name: string; projects: NavigationProject[]; threads?: NavigationThread[]; }
 export interface DesktopSyncStatus { pending: number; appliedAt: number; error: string; }
 export interface NavigationData { scopeProjects?: ProjectItem[]; desktopSync?: DesktopSyncStatus; newProjectCapability?: string; pinned?: NavigationThread[]; sections: NavigationSection[]; projects: NavigationProject[]; recent: NavigationThread[]; recentThreads?: NavigationThread[]; }
 export interface ModelOption { value: string; label: string; }
 export interface ThreadAction { action: string; label: string; activeLabel?: string; }
-export interface BackendCapabilities { threadActions?: ThreadAction[]; createThreads?: boolean; modelSettings: boolean; permissions: boolean; suggestions: boolean; steer: boolean; images: boolean; files?: boolean; extensions: boolean; changes: boolean; }
+export interface BackendCapabilities { commands?: AgentCommand[]; modeControl?: boolean; threadActions?: ThreadAction[]; createThreads?: boolean; createProjects?: boolean; projectActions?: ThreadAction[]; modelSettings: boolean; permissions: boolean; suggestions: boolean; steer: boolean; images: boolean; files?: boolean; extensions: boolean; changes: boolean; }
 export interface ModelItem { effortOptions?: ModelOption[]; model: string; name: string; defaultEffort: string; efforts: string[]; fastTier?: string; }
 export interface ModelSettings { model: string; effort: string; serviceTier?: string; }
 export interface ModelSettingsBody { projectId: string; threadId: string; model: string; effort: string; serviceTier?: string | null; }

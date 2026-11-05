@@ -1,4 +1,5 @@
 import { MIN_GATEWAY_VERSION } from './GatewayCompatibility';
+import { AgentRuntime, AgentCommand } from './UiTypes';
 import { DEFAULT_AGENT, findAgent, AgentInfo } from './Agents';
 import { UploadLimits, BackendCapabilities, ThreadAction, PermissionOption, ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest, ProjectManagementRequest } from './UiTypes';
 import { common } from '@kit.AbilityKit';
@@ -7,6 +8,32 @@ export * from './UiTypes';
 
 @Observed
 export abstract class UiState {
+  runtime: AgentRuntime = {};
+  commandFeedback: string = '';
+  commandPending: boolean = false;
+  get agentCommands(): AgentCommand[] { return this.capabilities.commands || []; }
+  get contextPercent(): number { const c = this.runtime.context; return c && c.limit > 0 ? Math.min(100, Math.round(c.used / c.limit * 100)) : -1; }
+  get goalLabel(): string {
+    const goal = this.runtime.goal;
+    if (!goal) { return ''; }
+    if (goal.status === 'active') { return goal.automatic === false ? '目标已设置 · 未自动推进' : '目标进行中'; }
+    if (goal.status === 'paused') { return '目标已暂停'; }
+    if (goal.status === 'blocked') { return '目标受阻'; }
+    if (goal.status === 'complete') { return '目标已完成'; }
+    if (goal.status === 'cancelled') { return '目标已取消'; }
+    if (goal.status === 'budgetLimited') { return '目标预算已用尽'; }
+    if (goal.status === 'usageLimited') { return '目标用量受限'; }
+    return '目标状态待同步';
+  }
+  get planLabel(): string {
+    const plan = this.runtime.plan;
+    if (!plan) { return ''; }
+    if (plan.workflow) { return '本次计划请求 · 阶段待同步'; }
+    return plan.pending ? (plan.active ? '计划模式 · 待退出' : '计划模式 · 待启用') : plan.active ? '计划模式' : '';
+  }
+  get hasGoalMode(): boolean { return !!this.runtime.goal && !['complete', 'cancelled'].includes(this.runtime.goal.status); }
+  get hasAgentMode(): boolean { return this.hasGoalMode || !!this.planLabel; }
+  abstract runAgentCommand(action: string, argument?: string, fromDraft?: boolean): Promise<void>;
   selectedAgent: string = DEFAULT_AGENT.id;
   get agent(): AgentInfo { return findAgent(this.selectedAgent) || DEFAULT_AGENT; }
   get containerName(): string { return this.agent.containerName; }
@@ -79,6 +106,8 @@ export abstract class UiState {
   imageProgress: number = 0;
   userFacingError(error: Error): string { if (error.name === 'GatewayVersionError') { return error.message; } if (error.name === 'LinkError' || (!this.authenticated && this.recovering)) { return this.hasKnownMac ? '' : '暂时无法连接 Mac，请检查网络后重试'; } return error.message.slice(0, 200); }
   get canControlProject(): boolean { return this.authenticated && this.projects.some((p: ProjectItem) => p.id === this.selectedProjectId && p.capability === 'control'); }
+  get canCreateProject(): boolean { return this.capabilities.createProjects ?? this.selectedAgent === 'codex'; }
+  get projectActions(): ThreadAction[] { return this.capabilities.projectActions || (this.selectedAgent === 'codex' ? [{ action: 'rename', label: '重命名' }, { action: 'section', label: '分区' }] : []); }
   get canCreateThread(): boolean { return this.capabilities.createThreads !== undefined ? this.capabilities.createThreads : this.selectedAgent === 'codex'; }
   get requiresWorkspaceThread(): boolean { return !this.selectedThreadId && (this.navigation?.sections.some((s: NavigationSection) => !!s.workspaceId) || false); }
   get canExecute(): boolean { return this.canControlProject && (!!this.selectedThreadId || (this.canCreateThread && !this.requiresWorkspaceThread)) && (!this.selectedThreadId || this.permissionMobileControl); }

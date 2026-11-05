@@ -59,8 +59,10 @@ export struct NavigationDrawer {
     Column({ space: 2 }) {
       Button() { Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(18).fontColor([AppTheme.secondary]); Text('重新命名').fontSize(14).fontColor(AppTheme.text).layoutWeight(1) }.padding({ left: 12, right: 12 }).height(44).width('100%') }
         .id('project-menu-rename').type(ButtonType.Normal).height(44).width('100%').backgroundColor(Color.Transparent).borderRadius(10).enabled(project.capability === 'control' && !this.client.busy).onClick(() => { this.editProject(project, 'projectRename'); })
+      if (this.client.projectActions.some((a: ThreadAction) => a.action === 'section')) {
       Button() { Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.list_bullet')).fontSize(18).fontColor([AppTheme.secondary]); Text('分区').fontSize(14).fontColor(AppTheme.text).layoutWeight(1); SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(11).fontColor([AppTheme.muted]) }.padding({ left: 12, right: 12 }).height(44).width('100%') }
         .id('project-menu-section').type(ButtonType.Normal).height(44).width('100%').backgroundColor(Color.Transparent).borderRadius(10).enabled(project.capability === 'control' && !this.client.busy).onClick(() => { this.editProject(project, 'projectSection'); })
+      }
       if (project.capability !== 'control') { Text('此项目只读或未授权，不能修改').fontSize(12).fontColor(AppTheme.secondary).padding(12) }
     }.id('project-actions-' + project.id).accessibilityText('项目操作：' + project.name).padding(6).width(196)
   }
@@ -125,7 +127,7 @@ export struct NavigationDrawer {
           SymbolGlyph(this.projectClosed(project) ? $r('sys.symbol.chevron_right') : $r('sys.symbol.chevron_down')).fontSize(13).fontColor([AppTheme.secondary])
         }.padding({ left: 12, right: 12 }).height(44).width('100%')
       }.id('navigation-project-' + project.id).type(ButtonType.Normal).height(44).width('100%').backgroundColor(Color.Transparent)
-        .priorityGesture(LongPressGesture({ duration: 450, repeat: false }).onAction(() => { if (this.client.selectedAgent !== 'codex') { return; } this.contextThreadId = ''; this.contextProjectId = project.id; }))
+        .priorityGesture(LongPressGesture({ duration: 450, repeat: false }).onAction(() => { if (!this.client.projectActions.length) { return; } this.contextThreadId = ''; this.contextProjectId = project.id; }))
         .bindPopup(this.contextProjectId === project.id, { builder: () => { this.ProjectMenu(project); }, placement: Placement.BottomLeft, enableArrow: false, radius: 18, systemMaterial: AppTheme.material(this.client.reduceTransparency), popupColor: AppTheme.fallbackColor(this.client.reduceTransparency), backgroundBlurStyle: AppTheme.fallbackBlur(this.client.reduceTransparency), onStateChange: (event: PopupStateChangeParam) => { if (!event.isVisible && this.contextProjectId === project.id) { this.contextProjectId = ''; } } })
         .enabled(this.client.authenticated).onClick(() => { if (this.contextProjectId !== project.id) { this.toggle(project.id, this.projectClosed(project)); } })
       if (!this.projectClosed(project)) {
@@ -178,11 +180,11 @@ export struct NavigationDrawer {
                 if (!this.sectionClosed(s)) { if (s.capability === 'none') { Text('在 Mac 上授权后查看会话').fontSize(12).fontColor(AppTheme.secondary).padding({ left: 12, top: 8, bottom: 8 }) } ForEach(s.projects, (p: NavigationProject) => { this.ProjectRow(p) }, (p: NavigationProject) => this.projectKey(p)); ForEach(s.threads || [], (thread: NavigationThread) => { this.ThreadRow(thread, false) }, (thread: NavigationThread) => this.threadKey(thread)) }
               }.width('100%')
             }, (s: NavigationSection) => this.sectionKey(s))
-            if (this.client.selectedAgent === 'codex' || this.client.navigation.projects.length > 0) {
+            if (this.client.canCreateProject || this.client.navigation.projects.length > 0) {
             Divider().color(AppTheme.subtle).margin({ top: 4, bottom: 4 })
             Row() {
               Text(this.client.containerName).fontSize(12).fontColor(AppTheme.secondary).layoutWeight(1)
-              if (this.client.selectedAgent === 'codex') {
+              if (this.client.canCreateProject) {
               Button('新建项目').id('new-project-button').height(44).fontSize(12).fontColor(AppTheme.text).backgroundColor(Color.Transparent).enabled(this.client.authenticated && !this.client.busy).onClick(() => { this.error = ''; if (this.client.newProjectCapability !== 'control') { this.error = '请先在 Mac 将此设备的新项目权限设为自动可执行'; return; } this.editName = ''; this.panel = 'create'; })
               }
             }.padding({ left: 12 }).width('100%')

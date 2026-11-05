@@ -1,3 +1,4 @@
+import { GATEWAY_UPDATE_COMMAND } from '../model/GatewayCompatibility';
 import { SheetHeader } from './SheetHeader';
 import { UiState, ProjectItem } from '../model/UiState';
 import { AppTheme } from '../theme/AppTheme';
@@ -58,6 +59,8 @@ export struct SettingsPanel {
           Text('连接').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 12, bottom: 6 })
           Column() {
             this.InfoRow({ icon: $r('sys.symbol.link'), title: 'Mac', value: this.client.authenticated ? '已连接' : '未连接', action: () => { this.onNavigate('connect'); } })
+            Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
+            this.InfoRow({ icon: $r('sys.symbol.info_circle'), title: 'Gateway 版本', value: this.client.gatewayVersion || '未确认', action: () => { this.info = '当前已核对版本：' + (this.client.gatewayVersion || '未确认') + '\n最低兼容版本：' + this.client.minimumGatewayVersion + '\n\n在 Mac 更新：\n' + GATEWAY_UPDATE_COMMAND + '\nyuanma-gateway restart\nyuanma-gateway pair'; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
             this.InfoRow({ icon: $r('sys.symbol.info_circle'), title: '连接信息', value: '', action: () => { this.info = this.client.fingerprint ? 'Mac 身份指纹\n' + this.client.fingerprint + '\n端到端加密连接，密钥证明后鉴权。' : '连接 Mac 后可查看设备身份。'; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })

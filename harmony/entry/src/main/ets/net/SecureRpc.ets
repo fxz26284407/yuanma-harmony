@@ -16,8 +16,8 @@ export class RemoteError extends Error {
   constructor(code: string, message: string) { super(`${code}: ${message}`); this.code = code; }
 }
 export function relayEndpoint(value?: string): string {
-  let message: string = '二维码中的中继地址无效，请重新生成配对码';
-  if (!value) { message = '缺少中继地址，请扫描 Mac 的新二维码更新连接'; }
+  let message: string = '二维码中的连接地址无效，请重新生成配对码';
+  if (!value) { message = '缺少连接地址，请扫描 Mac 的新二维码更新连接'; }
   else {
     try {
       if (typeof value !== 'string' || value.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(value)) { throw new Error('Invalid address'); }
@@ -29,6 +29,18 @@ export function relayEndpoint(value?: string): string {
   const error = new Error(message); error.name = 'RelayConfigError'; throw error;
 }
 
+export function connectionEndpoint(value: string | undefined, mode: string): string {
+  if (mode !== 'lan' && mode !== 'relay') { throw new Error('不支持的连接模式，请更新 App 或重新生成二维码'); }
+  const endpoint: string = relayEndpoint(value);
+  if (mode === 'lan') {
+    const parsed = url.URL.parseURL(endpoint);
+    const parts: string[] = parsed.hostname.split('.');
+    if (parsed.protocol !== 'ws:' || parsed.pathname !== '/v1/secure' || parts.length !== 4 || parts.some((part: string) => !/^\d{1,3}$/.test(part) || Number(part) > 255 || String(Number(part)) !== part)) { throw new Error('局域网直连地址无效'); }
+    const a: number = Number(parts[0]); const b: number = Number(parts[1]);
+    if (!(a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168))) { throw new Error('局域网直连必须使用内网 IPv4 地址'); }
+  }
+  return endpoint;
+}
 export class SecureRpc {
   private socket?: webSocket.WebSocket;
   private handle: number = 0;
@@ -48,8 +60,8 @@ export class SecureRpc {
   onClosed?: (error: Error) => void;
   onAuthenticationRequired?: () => void;
 
-  async connect(key: TransportIdentity, macPublic: string, macId: string, relayUrl?: string): Promise<void> {
-    const endpoint: string = relayEndpoint(relayUrl);
+  async connect(key: TransportIdentity, macPublic: string, macId: string, relayUrl?: string, mode: string = 'relay'): Promise<void> {
+    const endpoint: string = connectionEndpoint(relayUrl, mode);
     this.close(); const pin = decode(macPublic);
     if (pin.byteLength !== 32 || hex(native.sha256(pin)) !== macId) { throw new Error('Mac 身份与固定公钥不匹配'); }
     try { this.handle = native.create(key.privateKey, pin); } finally { new Uint8Array(key.privateKey).fill(0); }
@@ -72,7 +84,8 @@ export class SecureRpc {
       await Promise.race([dialing, ready]);
       await Promise.race([opened, ready]); console.info('CM_CONNECTION websocket-open');
       if (epoch !== this.epoch) { throw linkError('已取消旧连接'); }
-      await socket.send(JSON.stringify({ role: 'client', gatewayId: macId }));
+      if (mode === 'relay') { await socket.send(JSON.stringify({ role: 'client', gatewayId: macId })); }
+      else { this.stage = 'handshake'; await this.sendPacket(native.begin(this.handle)); }
       await ready; if (epoch !== this.epoch || !this.encrypted) { throw linkError('已取消旧连接'); }
     } catch (error) { this.fail(error as Error, epoch); throw (error as Error); }
   }
