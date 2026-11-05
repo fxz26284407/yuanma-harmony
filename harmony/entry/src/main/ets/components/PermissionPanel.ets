@@ -19,7 +19,7 @@ export struct PermissionPanel {
   build() {
     Column({ space: 14 }) {
       SheetHeader({ title: '执行策略', onClose: this.onClose })
-      Text(this.client.selectedThreadId ? '更改用于后续回合，不中断当前任务' : '用于这项新任务，不改变其他会话').fontSize(12).fontColor(AppTheme.secondary).width('100%')
+      Text(this.client.permissionScope === 'desktop-global' ? '要求审查和 Turbo 会修改 Antigravity 桌面全局策略，影响后续任务' : this.client.selectedThreadId ? '更改用于后续回合，不中断当前任务' : '用于这项新任务，不改变其他会话').fontSize(12).fontColor(AppTheme.secondary).width('100%')
       ForEach(this.client.permissionChoices, (option: PermissionOption) => { this.ModeRow(option.value, option.label, option.description || '', option.requiresConfirmation ? AppTheme.warning : AppTheme.text) }, (option: PermissionOption) => JSON.stringify(option))
       if (!this.client.permissionChoices.length) { Text(this.client.selectedThreadId ? '正在读取执行策略…' : '请先选择已有会话').fontSize(13).fontColor(AppTheme.secondary).width('100%') }
       if (!this.client.canControlProject) { Text('此项目只读，无法修改审批权限').fontSize(13).fontColor(AppTheme.secondary).width('100%') }

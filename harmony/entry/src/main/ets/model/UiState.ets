@@ -23,6 +23,8 @@ export abstract class UiState {
   }
   capabilities: BackendCapabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false };
   activityTitle: string = '';
+  runtimeStatusKnown: boolean = true;
+  permissionScope: string = 'conversation';
   projectCreationPath: string = '~/workspace';
   abstract saveProjectCreationPath(path: string): Promise<void>;
   newProjectCapability: string = 'none';
@@ -84,7 +86,7 @@ export abstract class UiState {
   }
   abstract loadPermissions(): Promise<void>;
   abstract applyPermissions(mode: string, confirmFullAccess: boolean): Promise<void>;
-  abstract loadExtensions(query: string): Promise<void>;
+  abstract loadExtensions(query: string, kind?: string): Promise<void>;
   abstract syncExtensions(): Promise<void>;
   abstract loadExtensionIcon(item: ExtensionItem): Promise<string>;
   abstract toggleReference(item: ExtensionItem): Promise<void>;
@@ -94,6 +96,7 @@ export abstract class UiState {
   appearance: string = 'dark';
   reduceTransparency: boolean = false;
   reduceMotion: boolean = false;
+  showReasoning: boolean = false;
 
   initialized: boolean = false;
   reconnectEnabled: boolean = true;
@@ -133,12 +136,12 @@ export abstract class UiState {
   lastSubmissionId: string = '';
   lastMessageState: string = '';
 
-  abstract saveDisplaySettings(reduceTransparency: boolean, reduceMotion: boolean, appearance?: string): Promise<void>;
+  abstract saveDisplaySettings(reduceTransparency: boolean, reduceMotion: boolean, appearance?: string, showReasoning?: boolean): Promise<void>;
   abstract initialize(context: common.Context): Promise<void>;
   abstract pair(materialText: string): Promise<void>;
   abstract reconnect(): Promise<void>;
   abstract send(projectId: string, threadId: string, content: string): Promise<void>;
-  abstract answerQuestion(request: ApprovalItem, values: Map<string, string>): Promise<void>;
+  abstract answerQuestion(request: ApprovalItem, values: Map<string, string>, selections?: Map<string, string[]>, notes?: Map<string, string>): Promise<void>;
   abstract replyApproval(id: string, decision: string): Promise<void>;
   abstract stop(): Promise<void>;
   abstract cancelQueued(submissionId?: string): Promise<void>;

@@ -5,6 +5,8 @@ import { UiState, ImageReference } from '../model/UiState';
 import { MediaTile } from './MediaTile';
 import { ExecutionLabel } from './ExecutionLabel';
 import { MessageView } from '../model/UiState';
+import { ExtensionIcon } from './ExtensionIcon';
+import { ExtensionItem } from '../model/UiTypes';
 import { MarkdownBody } from './MarkdownBody';
 class TranscriptGroup {
   id: string; tool: boolean; items: MessageView[];
@@ -42,7 +44,7 @@ export struct TranscriptView {
   }
   private groups(): TranscriptGroup[] {
     const groups: TranscriptGroup[] = [];
-    this.messages.forEach((m: MessageView) => { const prior = groups.length > 0 ? groups[groups.length - 1] : undefined; if (m.role === 'tool' && m.execution?.kind !== 'compaction' && prior?.tool && prior.items[0].execution?.kind === m.execution?.kind && prior.items[0].status === m.status && prior.items[0].groupKey === m.groupKey) { prior.items.push(m); } else { groups.push(new TranscriptGroup(m)); } }); return groups;
+    this.messages.filter((m: MessageView) => this.client.showReasoning || m.execution?.kind !== 'reasoning').forEach((m: MessageView) => { const prior = groups.length > 0 ? groups[groups.length - 1] : undefined; if (m.role === 'tool' && m.execution?.kind !== 'compaction' && prior?.tool && prior.items[0].execution?.kind === m.execution?.kind && prior.items[0].status === m.status && prior.items[0].groupKey === m.groupKey) { prior.items.push(m); } else { groups.push(new TranscriptGroup(m)); } }); return groups;
   }
   @Builder
   private Images(message: MessageView) {
@@ -72,7 +74,7 @@ export struct TranscriptView {
             }.id('execution-' + group.id).type(ButtonType.Normal).height(28).padding(0).width('100%').backgroundColor(Color.Transparent).accessibilityText(this.summary(group)).accessibilityDescription(this.expanded === group.id ? '点按收起执行内容' : '点按展开执行内容').onClick(() => { this.expanded = this.expanded === group.id ? '' : group.id; })
             if (this.expanded === group.id) {
               ForEach(group.items, (message: MessageView) => {
-                Column({ space: 6 }) { if (message.execution?.kind === 'fileChange') { Button('查看代码变更').id('view-item-changes-' + message.id).height(44).fontSize(12).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).onClick(() => { this.onChanges(message.turnId); }) } else if (message.text) { Text(message.text).fontSize(12).lineHeight(18).fontFamily('monospace').fontColor(AppTheme.secondary).copyOption(CopyOptions.LocalDevice) } if (message.images.length > 0) { this.Images(message) } if (message.hasMore && message.execution?.kind !== 'fileChange') { this.ReadLink(message) } }.padding(message.text ? 12 : 0).width('100%').backgroundColor(message.text ? AppTheme.contentSurface : Color.Transparent).borderRadius(12).alignItems(HorizontalAlign.Start)
+                Column({ space: 6 }) { if (message.execution?.kind === 'fileChange') { Button('查看代码变更').id('view-item-changes-' + message.id).height(44).fontSize(12).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).onClick(() => { this.onChanges(message.turnId); }) } else if (message.text && message.execution?.kind === 'reasoning') { MarkdownBody({ text: message.text }) } else if (message.text) { Text(message.text).fontSize(12).lineHeight(18).fontFamily('monospace').fontColor(AppTheme.secondary).copyOption(CopyOptions.LocalDevice) } if (message.images.length > 0) { this.Images(message) } if (message.hasMore && message.execution?.kind !== 'fileChange') { this.ReadLink(message) } }.padding(message.text ? 12 : 0).width('100%').backgroundColor(message.text ? AppTheme.contentSurface : Color.Transparent).borderRadius(12).alignItems(HorizontalAlign.Start)
               }, (m: MessageView) => m.id)
             }
           }.width('100%')
@@ -80,10 +82,17 @@ export struct TranscriptView {
           ForEach(group.items, (message: MessageView) => {
             Row() {
               Column({ space: 6 }) {
+                if (this.client.selectedAgent === 'antigravity' && message.role === 'user' && message.references.length > 0) {
+                  Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(6), cross: LengthMetrics.vp(6) } }) {
+                    ForEach(message.references, (ref: ExtensionItem) => {
+                      Row({ space: 6 }) { ExtensionIcon({ client: this.client, item: ref, appearance: this.client.appearance, revision: this.client.extensionIconVersion, iconSize: 18 }); Text(ref.name).fontSize(13).fontWeight(FontWeight.Medium).fontColor(AppTheme.text) }.padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor(AppTheme.contentSurface).borderRadius(18)
+                    }, (ref: ExtensionItem) => ref.id)
+                  }.width('100%')
+                }
                 if (message.question) { QuestionCard({ client: this.client, request: message.question, inline: true }) } else if (message.role === 'user' && message.text) { Text(message.text.trimEnd()).fontSize(14).lineHeight(20).fontColor(AppTheme.text).copyOption(CopyOptions.LocalDevice) } else if (message.role !== 'user' && message.text) { MarkdownBody({ text: message.text }) }
                 if (message.images.length > 0) { this.Images(message) }
                 if (message.hasMore) { this.ReadLink(message) }
-              }.padding(message.role === 'user' ? 12 : 0).width(message.role === 'user' ? (message.images.length > 0 ? '90%' : LayoutPolicy.wrapContent) : '100%').constraintSize({ maxWidth: message.role === 'user' ? '90%' : '100%' }).borderRadius(20).alignItems(HorizontalAlign.Start).backgroundColor(message.role === 'user' ? AppTheme.bubble : Color.Transparent)
+              }.padding(message.role === 'user' && !(this.client.selectedAgent === 'antigravity' && message.references.length > 0 && !message.text && !message.images.length) ? 12 : 0).width(message.role === 'user' ? (message.images.length > 0 ? '90%' : LayoutPolicy.wrapContent) : '100%').constraintSize({ maxWidth: message.role === 'user' ? '90%' : '100%' }).borderRadius(20).alignItems(HorizontalAlign.Start).backgroundColor(message.role === 'user' && !(this.client.selectedAgent === 'antigravity' && message.references.length > 0 && !message.text && !message.images.length) ? AppTheme.bubble : Color.Transparent)
             }.id('message-' + message.id).width('100%').justifyContent(FlexAlign.End)
           }, (m: MessageView) => m.id)
         }

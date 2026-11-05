@@ -7,7 +7,8 @@ export interface AgentInfo {
 
 export const AGENTS: AgentInfo[] = [
   { id: 'codex', name: 'Codex', containerName: '项目', logo: $r('app.media.agent_codex') },
-  { id: 'deepseek', name: 'DeepSeek', containerName: '工作区', logo: $r('app.media.agent_deepseek') }
+  { id: 'deepseek', name: 'DeepSeek', containerName: '工作区', logo: $r('app.media.agent_deepseek') },
+  { id: 'antigravity', name: 'Antigravity', containerName: '工作区', logo: $r('app.media.agent_antigravity') }
 ];
 export const DEFAULT_AGENT: AgentInfo = AGENTS[0];
 export function findAgent(id: string): AgentInfo | undefined {

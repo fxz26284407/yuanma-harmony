@@ -71,10 +71,11 @@ export class MobileSession extends UiState {
     const background: string = light ? '#F6F8FB' : '#2D333F'; const ink: string = light ? '#202B3D' : '#DBE3EF';
     window.getLastWindow(context).then(async (main: window.Window) => { await main.setWindowSystemBarProperties({ statusBarColor: background, navigationBarColor: background, statusBarContentColor: ink, navigationBarContentColor: ink }); }).catch(() => {});
   }
-  async saveDisplaySettings(reduceTransparency: boolean, reduceMotion: boolean, appearance: string = this.appearance): Promise<void> {
+  async saveDisplaySettings(reduceTransparency: boolean, reduceMotion: boolean, appearance: string = this.appearance, showReasoning: boolean = this.showReasoning): Promise<void> {
     if (appearance !== 'dark' && appearance !== 'light') { throw new Error('无效的外观选项'); }
     this.appearance = appearance; this.applyAppearance();
-    this.reduceTransparency = reduceTransparency; this.reduceMotion = reduceMotion; const value: DisplaySettings = { reduceTransparency: reduceTransparency, reduceMotion: reduceMotion, appearance: appearance };
+    this.reduceTransparency = reduceTransparency; this.reduceMotion = reduceMotion; this.showReasoning = showReasoning; const value: DisplaySettings = { reduceTransparency: reduceTransparency, reduceMotion: reduceMotion, appearance: appearance, showReasoning: showReasoning };
+    if (!showReasoning && this.currentTurnId && this.messages.some((m: MessageView) => m.turnId === this.currentTurnId && m.execution?.kind === 'reasoning')) { this.activityTitle = '正在思考…'; }
     this.displayWrites = this.displayWrites.catch(() => {}).then(async () => { await this.identity.put('displaySettings', JSON.stringify(value)); }); await this.displayWrites;
   }
   async initialize(context: common.Context): Promise<void> {
@@ -85,7 +86,7 @@ export class MobileSession extends UiState {
     this.attachmentRoot = context.filesDir + '/codex-attachments'; if (!fileIo.accessSync(this.attachmentRoot)) { fileIo.mkdirSync(this.attachmentRoot); }
     fileIo.listFileSync(this.attachmentRoot).forEach((name: string) => { if (/^pending-[A-Za-z0-9_-]{22}\.file$/.test(name)) { fileIo.unlinkSync(this.attachmentRoot + '/' + name); } });
     try { this.imageRoot = context.cacheDir + '/codex-media'; if (!fileIo.accessSync(this.imageRoot)) { fileIo.mkdirSync(this.imageRoot); } fileIo.listFileSync(this.imageRoot).forEach((name: string) => { if (/^(ext-)?[a-f0-9]{64}\.(png|jpg|gif|webp|svg)$/.test(name)) { fileIo.unlinkSync(this.imageRoot + '/' + name); } }); } catch (_) { this.imageRoot = ''; }
-    const display: string = await this.identity.get('displaySettings'); if (display) { const value = JSON.parse(display) as DisplaySettings; this.reduceTransparency = value.reduceTransparency === true; this.reduceMotion = value.reduceMotion === true; this.appearance = value.appearance === 'light' ? 'light' : 'dark'; }
+    const display: string = await this.identity.get('displaySettings'); if (display) { const value = JSON.parse(display) as DisplaySettings; this.reduceTransparency = value.reduceTransparency === true; this.reduceMotion = value.reduceMotion === true; this.appearance = value.appearance === 'light' ? 'light' : 'dark'; this.showReasoning = value.showReasoning === true; }
     this.applyAppearance();
     const legacy: string = await this.identity.get('knownMac');
     if (legacy) {
@@ -134,14 +135,14 @@ export class MobileSession extends UiState {
       await this.identity.put('selectedAgent', kind);
       this.selectedAgent = kind; this.mac = undefined; this.hasKnownMac = false; this.fingerprint = ''; this.deviceId = ''; this.pendingSend = undefined; this.pendingCreation = undefined;
       this.navigation = undefined; this.newProjectCapability = 'none'; this.projects = []; this.threads = []; this.messages = []; this.queueMessages = []; this.approvals = []; this.asyncQuestions = [];
-      this.selectedProjectId = ''; this.selectedThreadId = ''; this.selectedThreadName = ''; this.currentTurnId = ''; this.waiting = false; this.activityTitle = '';
+      this.selectedProjectId = ''; this.selectedThreadId = ''; this.selectedThreadName = ''; this.currentTurnId = ''; this.waiting = false; this.activityTitle = ''; this.runtimeStatusKnown = true;
       this.draft = ''; this.references = []; this.attachments = []; this.olderMessages = []; this.historyCursor = ''; this.readingMessage = undefined; this.readingChunks = []; this.readingMore = false;
       this.changes = undefined; this.diffReview = undefined; this.diffText = ''; this.diffFileId = ''; this.diffMore = false; this.imageUri = ''; this.selectedImageId = ''; this.projectCreationPath = '~/workspace';
       this.selectedModel = ''; this.selectedEffort = ''; this.selectedServiceTier = ''; this.modelDetail = ''; this.permissionOptions = []; this.permissionMode = 'ask'; this.permissionMobileControl = false; this.fullAccessConfirmed = false;
       this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = ''; this.suggestionText = ''; this.suggestionState = 'idle'; this.suggestionRequestKey = ''; this.suggestionTurnId = ''; this.suggestionPending = false; this.recoveryIssue = '';
       await this.loadAgent(); this.connectionVersion++;
       this.status = this.hasKnownMac ? '已切换到 ' + this.agentName : '请连接 ' + this.agentName;
-      this.detail = this.hasKnownMac ? '正在恢复该智能体的连接' : '扫描 Mac 网关的配对码，两种智能体共用此连接';
+      this.detail = this.hasKnownMac ? '正在恢复该智能体的连接' : '扫描 Mac 网关的配对码，所有智能体共用此连接';
     } finally { this.busy = false; }
     if (this.hasKnownMac) { await this.reconnect(); }
   }
@@ -229,7 +230,7 @@ export class MobileSession extends UiState {
   }
   private uploadLimit(value: number | undefined, maximum: number, fallback: number): number { return value !== undefined && Number.isSafeInteger(value) && value > 0 ? Math.min(value, maximum) : fallback; }
   private checkGeneration(generation: number): void { if (generation !== this.generation) { const error = new Error('已取消旧连接操作'); error.name = 'LinkError'; throw error; } }
-  private clearConnection(): void { this.models = []; this.backendKind = ''; this.uploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 }; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
+  private clearConnection(): void { this.activityTitle = ''; this.models = []; this.backendKind = ''; this.uploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 }; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
   private connectionLost(reason: string = 'transport'): void {
     console.info('CM_CONNECTION reset reason=' + reason);
     this.generation++; this.rpc.close(); this.clearConnection();
@@ -328,10 +329,10 @@ export class MobileSession extends UiState {
       try { await this.loadHistory(); } catch (_) { this.detail = '消息已接收，状态暂未刷新；请勿换新 ID 重发'; }
     } finally { this.busy = false; this.uploadProgress = -1; }
   }
-  async answerQuestion(request: ApprovalItem, values: Map<string, string>): Promise<void> {
+  async answerQuestion(request: ApprovalItem, values: Map<string, string>, selections: Map<string, string[]> = new Map<string, string[]>(), notes: Map<string, string> = new Map<string, string>()): Promise<void> {
     if (this.busy) { throw new Error('请等待当前操作完成'); }
     const answers: Record<string, QuestionAnswer> = {};
-    request.questions.forEach((q: QuestionItem) => { const answer = values.get(q.id) || ''; if (!answer.trim()) { throw new Error('请回答每个问题'); } answers[q.id] = { answers: [answer] }; });
+    request.questions.forEach((q: QuestionItem) => { const answer = values.get(q.id) || ''; if (!answer.trim()) { throw new Error('请回答每个问题'); } answers[q.id] = q.nativeOptions ? { answers: [answer], selectedOptionIds: selections.get(q.id) || [], writeInResponse: notes.get(q.id) || '' } : { answers: [answer] }; });
     this.busy = true;
     try {
       const body: QuestionReplyBody = { projectId: this.selectedProjectId, threadId: this.selectedThreadId, id: request.id, sourceTurnId: request.sourceTurnId, answers: answers };
@@ -463,7 +464,7 @@ export class MobileSession extends UiState {
     const generation: number = this.generation;
     const thread: string = this.selectedThreadId; const project: string = this.selectedProjectId;
     const value = await this.rpc.request<PermissionState>('GET', '/v1/threads/' + thread + '/permissions?projectId=' + encodeURIComponent(project), undefined, this.authorization());
-    if (generation === this.generation && thread === this.selectedThreadId && project === this.selectedProjectId) { this.permissionOptions = value.options || []; this.permissionMode = value.mode; this.permissionMobileControl = value.mobileControl; this.fullAccessConfirmed = this.permissionConfirmation(value.mode) && value.mobileControl; }
+    if (generation === this.generation && thread === this.selectedThreadId && project === this.selectedProjectId) { this.permissionScope = value.scope || 'conversation'; this.permissionOptions = value.options || []; this.permissionMode = value.mode; this.permissionMobileControl = value.mobileControl; this.fullAccessConfirmed = this.permissionConfirmation(value.mode) && value.mobileControl; }
   }
   async applyPermissions(mode: string, confirmFullAccess: boolean): Promise<void> {
     if (!this.capabilities.permissions) { throw new Error('当前智能体不支持修改权限'); }
@@ -472,14 +473,14 @@ export class MobileSession extends UiState {
     if (this.lastMessageState === 'unknown') { throw new Error('请先核对上一条消息的发送结果'); }
     if (!this.permissionChoices.some((o) => o.value === mode) || (this.permissionConfirmation(mode) && !confirmFullAccess)) { throw new Error('请先确认完整存取权'); }
     this.busy = true;
-    try { if (this.selectedThreadId) { const body: PermissionBody = { projectId: this.selectedProjectId, mode: mode, confirmFullAccess: confirmFullAccess }; const value = await this.rpc.request<PermissionState>('POST', '/v1/threads/' + this.selectedThreadId + '/permissions', body, this.authorization()); this.permissionOptions = value.options || []; this.permissionMode = value.mode; this.permissionMobileControl = value.mobileControl; } else { this.permissionMode = mode; this.permissionMobileControl = true; } this.fullAccessConfirmed = this.permissionConfirmation(mode) && confirmFullAccess; }
+    try { if (this.selectedThreadId) { const body: PermissionBody = { projectId: this.selectedProjectId, mode: mode, confirmFullAccess: confirmFullAccess }; const value = await this.rpc.request<PermissionState>('POST', '/v1/threads/' + this.selectedThreadId + '/permissions', body, this.authorization()); this.permissionScope = value.scope || 'conversation'; this.permissionOptions = value.options || []; this.permissionMode = value.mode; this.permissionMobileControl = value.mobileControl; } else { this.permissionMode = mode; this.permissionMobileControl = true; } this.fullAccessConfirmed = this.permissionConfirmation(mode) && confirmFullAccess; }
     finally { this.busy = false; }
   }
-  async loadExtensions(query: string): Promise<void> {
+  async loadExtensions(query: string, kind?: string): Promise<void> {
     if (!this.capabilities.extensions) { return; }
     if (!this.authenticated || !this.selectedProjectId) { throw new Error('请先连接 Mac 并选择项目'); }
     const generation: number = ++this.extensionGeneration; const project: string = this.selectedProjectId; const thread: string = this.selectedThreadId; const mac: string = this.fingerprint; this.extensionLoading = true;
-    try { const result = await this.rpc.request<ExtensionPage>('GET', '/v1/extensions?projectId=' + encodeURIComponent(this.selectedProjectId) + (this.selectedThreadId ? '&threadId=' + encodeURIComponent(this.selectedThreadId) : '') + '&query=' + encodeURIComponent(query), undefined, this.authorization()); if (generation === this.extensionGeneration && mac === this.fingerprint && this.authenticated && project === this.selectedProjectId && thread === this.selectedThreadId) { this.extensionItems = result.items; this.extensionTotal = result.total; } }
+    try { const result = await this.rpc.request<ExtensionPage>('GET', '/v1/extensions?projectId=' + encodeURIComponent(this.selectedProjectId) + (this.selectedThreadId ? '&threadId=' + encodeURIComponent(this.selectedThreadId) : '') + '&query=' + encodeURIComponent(query) + (kind ? '&kind=' + encodeURIComponent(kind) : ''), undefined, this.authorization()); if (generation === this.extensionGeneration && mac === this.fingerprint && this.authenticated && project === this.selectedProjectId && thread === this.selectedThreadId) { this.extensionItems = result.items; this.extensionTotal = result.total; } }
     finally { if (generation === this.extensionGeneration) { this.extensionLoading = false; } }
   }
   private async refreshExtensionCatalog(): Promise<void> {
@@ -706,6 +707,7 @@ export class MobileSession extends UiState {
   private threadDraftKey(projectId: string, threadId: string): string { return 'draft.' + this.selectedAgent + '.' + this.fingerprint + '.' + projectId + '.' + (threadId || 'new'); }
   private draftKey(): string { return this.threadDraftKey(this.selectedProjectId, this.selectedThreadId); }
   private async restoreDraft(): Promise<void> {
+    this.activityTitle = '';
     const key: string = this.draftKey();
     if (this.selectedAgent === 'codex' && this.fingerprint === this.legacyGateway && !(await this.identity.get('migrated.' + key))) {
       const old: string = 'draft.' + this.selectedProjectId + '.' + (this.selectedThreadId || 'new');
@@ -857,11 +859,19 @@ export class MobileSession extends UiState {
     this.changes = snapshot.changes;
     if (snapshot.backend.name && this.selectedThreadName !== snapshot.backend.name) { this.selectedThreadName = snapshot.backend.name; if (!this.busy) { this.refreshNavigation().catch(() => {}); } }
     this.asyncQuestions = snapshot.asyncQuestions || [];
-    this.approvals = [...snapshot.approvals, ...this.asyncQuestions.filter((q: ApprovalItem) => !q.answered)];
+    this.approvals = [...snapshot.approvals, ...this.asyncQuestions.filter((q: ApprovalItem) => !q.answered && q.canAccept)];
     this.queueMessages = snapshot.messages.filter((m: SnapshotMessage) => ['queued', 'dispatching', 'nativeQueued', 'unknown'].includes(m.state));
-    if (snapshot.backend.permissions) { this.permissionOptions = snapshot.backend.permissions.options || []; this.permissionMode = snapshot.backend.permissions.mode; this.permissionMobileControl = snapshot.backend.permissions.mobileControl; this.fullAccessConfirmed = this.permissionConfirmation(this.permissionMode) && this.permissionMobileControl; }
+    if (snapshot.backend.permissions) { this.permissionScope = snapshot.backend.permissions.scope || 'conversation'; this.permissionOptions = snapshot.backend.permissions.options || []; this.permissionMode = snapshot.backend.permissions.mode; this.permissionMobileControl = snapshot.backend.permissions.mobileControl; this.fullAccessConfirmed = this.permissionConfirmation(this.permissionMode) && this.permissionMobileControl; }
     this.currentTurnId = snapshot.backend.turnId || ''; this.waiting = snapshot.backend.waiting;
-    this.activityTitle = this.currentTurnId ? snapshot.activityTitle || (snapshot.history.activityTurnId === this.currentTurnId ? snapshot.history.activityTitle || '' : '') : '';
+    this.runtimeStatusKnown = snapshot.backend.statusKnown !== false;
+    this.activityTitle = snapshot.backend.active ? snapshot.activityTitle || (snapshot.history.activityTurnId === this.currentTurnId ? snapshot.history.activityTitle || '' : '') : '';
+    if (!this.showReasoning && this.currentTurnId && ((snapshot.history.activityTurnId === this.currentTurnId && !!snapshot.history.activityTitle) || snapshot.progress.some((p: LiveProgress) => p.turnId === this.currentTurnId && p.execution?.kind === 'reasoning'))) {
+      const activity: LiveProgress | undefined = snapshot.progress.slice().reverse().find((p: LiveProgress) => p.turnId === this.currentTurnId && ['running', 'waiting', 'pending'].includes(p.status) && p.execution?.kind !== 'reasoning');
+      this.activityTitle = activity?.execution?.label || (this.waiting ? '等待操作…' : activity?.role === 'assistant' ? '正在生成回复…' : '正在思考…');
+    }
+
+    if (snapshot.backend.active && !this.activityTitle) { this.activityTitle = this.waiting ? '等待操作…' : '正在思考…'; }
+    if (snapshot.backend.active && snapshot.backend.statusKnown === false) { this.activityTitle = '执行状态待确认…'; }
     if (this.pendingSend !== undefined && this.pendingSend.projectId === this.selectedProjectId && this.pendingSend.threadId === this.selectedThreadId) {
       const id: string = this.pendingSend.id;
       const recovered = snapshot.messages.find((m: SnapshotMessage) => m.client_id === id);
@@ -887,7 +897,8 @@ export class MobileSession extends UiState {
         const view = new MessageView(live.id, live.role, live.text + (live.truncated ? '\n[较长输出仅显示末尾，完整内容请查看历史]' : ''), live.status);
         view.groupKey = live.groupKey || ''; view.execution = live.execution;
         view.images = live.images?.length ? live.images : (existing >= 0 ? result[existing].images : []);
-        view.itemId = existing >= 0 ? result[existing].itemId : live.id;
+        view.itemId = live.readId || (existing >= 0 ? result[existing].itemId : live.id);
+        view.hasMore = (live.truncated && (existing >= 0 || !!live.readId)) || (existing >= 0 && result[existing].hasMore);
         view.turnId = live.turnId || view.images[0]?.turnId || (existing >= 0 ? result[existing].turnId : '');
         if (existing >= 0) { result[existing] = view; } else { result.push(view); }
       }
@@ -905,7 +916,7 @@ export class MobileSession extends UiState {
         if (role === 'assistant' && !text && !item.images?.length) { return; }
         const view = new MessageView(item.clientId || item.id, role, text);
         view.question = item.asyncQuestion ? this.asyncQuestions.find((q: ApprovalItem) => q.id === item.asyncQuestion?.id) || item.asyncQuestion : undefined;
-        view.images = item.images || []; view.itemId = item.readId || item.id; view.turnId = turn.id; view.hasMore = item.truncated === true;
+        view.references = item.references || []; view.images = item.images || []; view.itemId = item.readId || item.id; view.turnId = turn.id; view.hasMore = item.truncated === true;
         view.execution = item.execution; view.groupKey = item.groupKey || ''; if (item.execution) { view.status = item.execution.status; }
         result.push(view);
       });
