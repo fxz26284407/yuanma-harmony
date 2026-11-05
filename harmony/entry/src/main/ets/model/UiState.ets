@@ -1,3 +1,4 @@
+import { MIN_GATEWAY_VERSION } from './GatewayCompatibility';
 import { DEFAULT_AGENT, findAgent, AgentInfo } from './Agents';
 import { UploadLimits, BackendCapabilities, ThreadAction, PermissionOption, ChangeSummary, DraftImage, ExtensionItem, PermissionState, ImageReference, ThreadManagementRequest, ProjectManagementRequest } from './UiTypes';
 import { common } from '@kit.AbilityKit';
@@ -16,6 +17,8 @@ export abstract class UiState {
     const section = this.navigation?.sections.find((s: NavigationSection) => (s.threads || []).some((t: NavigationThread) => t.id === this.selectedThreadId) || (s.id === current?.sectionId && s.projects.length === 0));
     return section?.name || this.projects.find((p: ProjectItem) => p.id === this.selectedProjectId)?.name || '';
   }
+  gatewayVersion: string = '';
+  readonly minimumGatewayVersion: string = MIN_GATEWAY_VERSION;
   backendKind: string = '';
   uploadLimits: UploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 };
   get threadActions(): ThreadAction[] {
@@ -74,7 +77,7 @@ export abstract class UiState {
   imageLabel: string = '';
   imageLoading: boolean = false;
   imageProgress: number = 0;
-  userFacingError(error: Error): string { if (error.name === 'LinkError' || (!this.authenticated && this.recovering)) { return this.hasKnownMac ? '' : '暂时无法连接 Mac，请检查网络后重试'; } return error.message.slice(0, 200); }
+  userFacingError(error: Error): string { if (error.name === 'GatewayVersionError') { return error.message; } if (error.name === 'LinkError' || (!this.authenticated && this.recovering)) { return this.hasKnownMac ? '' : '暂时无法连接 Mac，请检查网络后重试'; } return error.message.slice(0, 200); }
   get canControlProject(): boolean { return this.authenticated && this.projects.some((p: ProjectItem) => p.id === this.selectedProjectId && p.capability === 'control'); }
   get canCreateThread(): boolean { return this.capabilities.createThreads !== undefined ? this.capabilities.createThreads : this.selectedAgent === 'codex'; }
   get requiresWorkspaceThread(): boolean { return !this.selectedThreadId && (this.navigation?.sections.some((s: NavigationSection) => !!s.workspaceId) || false); }

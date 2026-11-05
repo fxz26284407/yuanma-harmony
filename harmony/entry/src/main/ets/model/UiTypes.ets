@@ -1,6 +1,6 @@
 import { AuthChallenge } from '../security/AuthTranscript';
 
-export interface PairMaterial { profile: string; gatewayId: string; publicKey: string; pairingId: string; secret: string; expiresAt: number; relayUrl?: string; }
+export interface PairMaterial { gatewayVersion?: string; profile: string; gatewayId: string; publicKey: string; pairingId: string; secret: string; expiresAt: number; relayUrl?: string; }
 export interface PendingThreadCreation { projectId: string; workspaceId: string; requestId: string; }
 export interface AgentSelection { projectId: string; threadId: string; threadName: string; }
 export interface KnownMac { gatewayId: string; publicKey: string; relayUrl?: string; }

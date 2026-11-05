@@ -1,3 +1,4 @@
+import { requireGatewayVersion, GatewayInfo } from './GatewayCompatibility';
 import { DEFAULT_AGENT, findAgent } from './Agents';
 import { PendingThreadCreation, AgentSelection, CreateProjectBody, ProjectManagementRequest } from './UiTypes';
 import { connection } from '@kit.NetworkKit';
@@ -147,11 +148,15 @@ export class MobileSession extends UiState {
     if (this.hasKnownMac) { await this.reconnect(); }
   }
   private async connect(mac: KnownMac, generation: number = this.generation): Promise<void> {
-    this.checkGeneration(generation); this.clearConnection(); this.rpc.backend = this.selectedAgent; this.status = '正在建立安全会话';
+    this.checkGeneration(generation); this.clearConnection(); this.gatewayVersion = ''; this.rpc.backend = this.selectedAgent; this.status = '正在建立安全会话';
     const key = await this.identity.transport();
     try { this.checkGeneration(generation); this.transportPublic = key.publicKey;
       this.signingPublic = encode(await this.signer.publicKey()); this.checkGeneration(generation);
       await this.rpc.connect(key, mac.publicKey, mac.gatewayId, mac.relayUrl);
+      let info: GatewayInfo;
+      try { info = await this.rpc.request<GatewayInfo>('GET', '/v1/gateway-info'); }
+      catch (error) { if (error instanceof RemoteError && (error.code === 'NOT_FOUND' || error.code === 'AUTH_REQUIRED')) { requireGatewayVersion(); } throw error as Error; }
+      this.checkGeneration(generation); this.gatewayVersion = requireGatewayVersion(info.gatewayVersion);
     } finally { new Uint8Array(key.privateKey).fill(0); }
     this.checkGeneration(generation); this.mac = mac; this.encrypted = true; this.fingerprint = mac.gatewayId; this.status = '安全会话已建立';
     this.projectCreationPath = (await this.identity.get('projectCreationPath.' + mac.gatewayId)) || '~/workspace'; this.checkGeneration(generation);
@@ -168,6 +173,7 @@ export class MobileSession extends UiState {
     if (!material || material.profile !== 'Noise_IK_25519_ChaChaPoly_BLAKE2b' || typeof material.gatewayId !== 'string' || !/^[a-f0-9]{64}$/.test(material.gatewayId) ||
       typeof material.publicKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(material.publicKey) || typeof material.secret !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(material.secret) ||
       typeof material.pairingId !== 'string' || !material.pairingId || material.pairingId.length > 200 || !Number.isSafeInteger(material.expiresAt) || material.expiresAt <= Date.now()) { throw new Error('配对材料无效或已过期'); }
+    requireGatewayVersion(material.gatewayVersion);
     const endpoint: string = relayEndpoint(material.relayUrl);
     if (this.mac !== undefined && (this.mac.gatewayId !== material.gatewayId || this.mac.publicKey !== material.publicKey)) { throw new Error('Mac 身份变化，请先明确断开旧身份后重新确认'); }
     const previousMac: KnownMac | undefined = this.mac;
@@ -275,7 +281,8 @@ export class MobileSession extends UiState {
       if (generation === this.generation) {
         this.rpc.close(); this.clearConnection();
         const failed = error as Error; console.warn('CM_CONNECTION restore-failed kind=' + failed.name + ' code=' + (failed instanceof RemoteError ? failed.code : 'local')); const denied: boolean = (failed instanceof RemoteError && failed.code === 'AUTH_DENIED') || failed.message.includes('身份与固定公钥不匹配') || failed.message.includes('身份记录缺失');
-        if (failed.name === 'BackendMismatchError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '智能体不匹配'; this.detail = failed.message; clearTimeout(this.retryTimer); }
+        if (failed.name === 'GatewayVersionError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '请更新 Mac 网关'; this.detail = failed.message; clearTimeout(this.retryTimer); }
+        else if (failed.name === 'BackendMismatchError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '智能体不匹配'; this.detail = failed.message; clearTimeout(this.retryTimer); }
         else if (failed.name === 'RelayConfigError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '需更新连接地址'; this.detail = this.recoveryIssue; clearTimeout(this.retryTimer); }
         else if (denied) { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = '设备授权需要确认，请在 Mac 检查此设备'; this.status = '需检查 Mac 授权'; this.detail = this.recoveryIssue; clearTimeout(this.retryTimer); }
         else { this.status = '正在恢复连接'; this.recovering = true; this.retryDelay = Math.min(15000, this.retryDelay * 2); this.scheduleRecovery(this.retryDelay); }
