@@ -26,3 +26,7 @@ harmony/entry/src/main/resources/rawfile/yuanma-licenses/
 !.env.example
 *.sqlite
 *.sqlite-*
+
+# DevEco 本机生成的 C/C++ 编辑器配置
+harmony/.clangd
+harmony/.clang-tidy
