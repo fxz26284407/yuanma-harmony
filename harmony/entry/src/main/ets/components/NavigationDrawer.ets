@@ -7,6 +7,7 @@ export struct NavigationDrawer {
   @ObjectLink client: UiState;
   @Prop @Watch('agentChanged') agentKind: string = 'codex';
   @Prop reduceTransparency: boolean = false;
+  @Prop embedded: boolean = false;
   onNavigate: (page: string) => void = () => {};
   @State private search: string = '';
   @State private collapsed: Map<string, boolean> = new Map<string, boolean>();
@@ -198,13 +199,13 @@ export struct NavigationDrawer {
       }.layoutWeight(1).width('100%').scrollBar(BarState.Off).align(Alignment.TopStart).initialOffset({ xOffset: 0, yOffset: 0 })
       Row({ space: 8 }) {
         Circle().width(7).height(7).fill(this.client.authenticated ? AppTheme.success : AppTheme.secondary)
-        Text(this.client.authenticated ? '已连接  ·  Mac' : this.client.status).fontSize(12).fontColor(AppTheme.secondary).layoutWeight(1)
+        Text(this.client.authenticated ? '已连接  ·  Mac' : this.client.status).fontSize(12).fontColor(AppTheme.secondary).layoutWeight(1).id('navigation-connection-status').accessibilityText('查看 Mac 连接状态').onClick(() => { this.onNavigate('connect'); })
         Button() { SymbolGlyph($r('sys.symbol.gearshape')).fontSize(21).fontColor([AppTheme.text]) }.width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('连接与设置').onClick(() => { this.onNavigate('settings'); })
       }.width('100%').height(44)
     }.padding({ left: 14, right: 14, top: 16, bottom: 12 }).height('100%').width('100%').alignItems(HorizontalAlign.Start)
-      .backgroundColor(this.reduceTransparency ? AppTheme.surface : Color.Transparent)
-      .backgroundEffect({ radius: this.reduceTransparency ? 0 : 18, saturation: 1.3, brightness: 1.08, color: this.reduceTransparency ? AppTheme.surface : AppTheme.drawerTint })
-      .border({ width: 1, color: AppTheme.glassRim }).borderRadius({ topRight: 22, bottomRight: 22 }).shadow({ radius: 22, color: AppTheme.shadow, offsetX: 6 })
+      .backgroundColor(this.embedded || this.reduceTransparency ? AppTheme.surface : Color.Transparent)
+      .backgroundEffect({ radius: this.embedded || this.reduceTransparency ? 0 : 18, saturation: 1.3, brightness: 1.08, color: this.embedded || this.reduceTransparency ? AppTheme.surface : AppTheme.drawerTint })
+      .border({ width: this.embedded ? 0 : 1, color: AppTheme.glassRim }).borderRadius({ topRight: this.embedded ? 0 : 22, bottomRight: this.embedded ? 0 : 22 }).shadow({ radius: this.embedded ? 0 : 22, color: AppTheme.shadow, offsetX: this.embedded ? 0 : 6 })
       .bindSheet(this.panel.length > 0, this.Editor, { height: SheetSize.FIT_CONTENT, dragBar: true, showClose: false, backgroundColor: AppTheme.fallbackColor(this.client.reduceTransparency), systemMaterial: AppTheme.material(this.client.reduceTransparency), blurStyle: AppTheme.fallbackBlur(this.client.reduceTransparency), onDisappear: () => { this.panel = ''; } })
   }
 }

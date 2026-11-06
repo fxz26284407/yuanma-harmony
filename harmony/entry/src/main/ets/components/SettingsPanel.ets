@@ -49,6 +49,7 @@ export struct SettingsPanel {
           }.width('100%')
         } else { Text(this.info).fontSize(14).lineHeight(24).fontColor(AppTheme.text).width('100%').copyOption(CopyOptions.LocalDevice) }
       }.id('settings-info-content').width('100%').constraintSize({ maxHeight: 360 }).align(Alignment.TopStart).scrollBar(BarState.Auto)
+      if (this.infoTitle === '连接信息' && this.client.authenticated) { Button('断开连接').id('disconnect-from-info').height(44).width('100%').fontColor(AppTheme.error).backgroundColor(AppTheme.subtle).borderRadius(14).onClick(() => { this.client.pauseConnection(); this.info = ''; this.onNavigate('connect'); }) }
       Button(this.infoTitle === '默认项目创建路径' ? '保存路径' : '完成').id('settings-info-close').height(44).width('100%').fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).borderRadius(14).enabled(!this.savingPath).onClick(() => { if (this.infoTitle === '默认项目创建路径') { this.savePath(); } else { this.info = ''; } })
     }.id('settings-info-sheet').padding({ left: 20, right: 20, top: 20, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
   }
@@ -105,7 +106,7 @@ export struct SettingsPanel {
         }.width('100%')
         Column({ space: 6 }) {
           Text('关于').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 12, bottom: 6 })
-          Column() { Hyperlink('https://github.com/fxz26284407/yuanma-harmony#readme', '使用说明 · 网关搭建（GitHub）').id('gateway-guide-settings').color(this.client.appearance === 'light' ? '#287889' : '#86CDDD').height(54).width('100%').padding({ left: 16, right: 16 }).accessibilityText('在系统浏览器打开 GitHub 网关搭建与使用说明'); Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 }); this.InfoRow({ icon: $r('sys.symbol.lock'), title: '设备与隐私', value: '', action: () => { this.info = '设备签名使用 HUKS；配对身份由 Mac 固定公钥验证。草稿仅保存在本机；秘密回答不写入草稿。'; } }); this.InfoRow({ icon: $r('sys.symbol.doc_text'), title: '版本信息', value: '开发构建', action: () => { this.info = '远码 · HarmonyOS 原生客户端'; } }) }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
+          Column() { this.InfoRow({ icon: $r('sys.symbol.doc_text'), title: '网关搭建说明', value: '', action: () => { this.onNavigate('gateway-guide'); } }); Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 }); this.InfoRow({ icon: $r('sys.symbol.lock'), title: '设备与隐私', value: '', action: () => { this.info = '设备签名使用 HUKS；配对身份由 Mac 固定公钥验证。草稿仅保存在本机；秘密回答不写入草稿。'; } }); this.InfoRow({ icon: $r('sys.symbol.doc_text'), title: '版本信息', value: '开发构建', action: () => { this.info = '远码 · HarmonyOS 原生客户端'; } }) }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
         }.width('100%')
         Button() { Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.power')).fontSize(20).fontColor([AppTheme.error]); Text('断开连接').fontSize(14).fontColor(AppTheme.error).layoutWeight(1) }.padding(16).width('100%') }.type(ButtonType.Normal).height(54).width('100%').backgroundColor(AppTheme.subtle).borderRadius(18).onClick(() => { this.client.pauseConnection(); this.onNavigate('connect'); })
       }.padding({ top: 20, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)

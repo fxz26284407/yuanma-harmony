@@ -1,3 +1,4 @@
+import { GatewayGuide } from './GatewayGuide';
 import { RuntimeControls } from './RuntimeControls';
 import { MarkdownBody } from './MarkdownBody';
 import { AgentSwitcher } from './AgentSwitcher';
@@ -10,7 +11,7 @@ import { QueuedMessageCard } from './QueuedMessageCard';
 import { MentionControls } from './MentionControls';
 import { ExtensionIcon } from './ExtensionIcon';
 import { ImageViewer } from './ImageViewer';
-import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { display, KeyboardAvoidMode } from '@kit.ArkUI';
 import { RequestPanel } from './RequestPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { AppTheme } from '../theme/AppTheme';
@@ -25,6 +26,7 @@ import { UiState, ThreadAction, ThreadManagementRequest, ProjectItem, ThreadItem
 export struct WorkspaceView {
   @ObjectLink client: UiState;
   @State private page: string = 'connect';
+  private gatewayGuideReturn: string = 'connect';
   @State private quickContextId: string = '';
   @State private renameThread: NavigationThread | undefined = undefined;
   @State private renameText: string = '';
@@ -46,6 +48,37 @@ export struct WorkspaceView {
   @State private showAttachmentChoices: boolean = false;
   @State private composerMenuVersion: number = 0;
   @State private viewportWidth: number = 390;
+  private viewportHeight: number = 0;
+  private sidebarChoice: boolean | undefined = undefined;
+  @State private foldStatus: display.FoldStatus = display.FoldStatus.FOLD_STATUS_UNKNOWN;
+  @State private foldBlur: number = 0;
+  @State private foldOpening: boolean = true;
+  private foldTimer: number = -1;
+  private foldListening: boolean = false;
+  private foldModeListening: boolean = false;
+  private foldChanged = (status: display.FoldStatus): void => {
+    if (status === this.foldStatus) { return; }
+    const previous: display.FoldStatus = this.foldStatus;
+    this.foldStatus = status;
+    this.foldOpening = status === display.FoldStatus.FOLD_STATUS_EXPANDED || previous === display.FoldStatus.FOLD_STATUS_FOLDED;
+    this.updateSidebarLayout();
+    clearTimeout(this.foldTimer);
+    this.getUIContext().animateTo({ duration: this.client.reduceMotion ? 0 : 160, curve: Curve.EaseOut }, () => { this.foldBlur = this.client.reduceMotion ? 0 : 18; });
+    this.foldTimer = setTimeout(() => { this.finishFoldTransition(); }, 220);
+  };
+  private foldModeChanged = (_mode: display.FoldDisplayMode): void => {
+    clearTimeout(this.foldTimer);
+    this.foldBlur = this.client.reduceMotion ? 0 : 18;
+    this.foldTimer = setTimeout(() => { this.finishFoldTransition(); }, 16);
+  };
+  private finishFoldTransition(): void {
+    clearTimeout(this.foldTimer);
+    this.getUIContext().animateTo({ duration: this.client.reduceMotion ? 0 : 300, curve: Curve.EaseOut }, () => { this.foldBlur = 0; });
+  }
+  private updateSidebarLayout(): void {
+    const embedded: boolean = this.viewportWidth >= 840 || (this.viewportWidth >= 600 && (this.viewportWidth > this.viewportHeight || this.foldStatus === display.FoldStatus.FOLD_STATUS_EXPANDED));
+    if (embedded !== this.wideScreen) { this.wideScreen = embedded; this.sidebarOpen = this.sidebarChoice ?? embedded; }
+  }
   private chatScroll: Scroller = new Scroller();
   private contentHeight: number = 0;
   private chatHeight: number = 0;
@@ -57,6 +90,13 @@ export struct WorkspaceView {
   private hasActiveExecution(): boolean { return this.client.messages.some((m: MessageView) => m.turnId === this.client.currentTurnId && m.role === 'tool' && !!m.execution && ['running', 'waiting', 'pending'].includes(m.status) && (m.execution.kind !== 'reasoning' || this.client.showReasoning)); }
 
   aboutToAppear(): void {
+    try {
+      if (display.isFoldable()) {
+        this.foldStatus = display.getFoldStatus();
+        display.on('foldStatusChange', this.foldChanged); this.foldListening = true;
+        display.on('foldDisplayModeChange', this.foldModeChanged); this.foldModeListening = true;
+      }
+    } catch (_) { console.warn('折叠监听不可用，使用窗口尺寸布局'); }
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.client.initialize(context).then(async () => { if (this.client.reconnectEnabled && this.client.hasKnownMac && !this.client.authenticated && !this.client.busy) { await this.client.reconnect(); } if (this.client.authenticated) { await this.client.refreshNavigation(); this.page = 'chat'; if (!this.client.selectedProjectId) { this.showProjects = true; } } }).catch((error: Error) => { this.errorText = this.safeError(error); });
@@ -66,7 +106,11 @@ export struct WorkspaceView {
       if (this.page === 'chat' && this.client.authenticated && !this.client.busy && Date.now() - this.refreshedAt >= cadence) { this.refreshedAt = Date.now(); this.client.refresh().catch((error: Error) => { this.errorText = this.safeError(error); }); }
     }, 300);
   }
-  aboutToDisappear(): void { clearInterval(this.refreshTimer); }
+  aboutToDisappear(): void {
+    clearInterval(this.refreshTimer); clearTimeout(this.foldTimer);
+    if (this.foldListening) { try { display.off('foldStatusChange', this.foldChanged); } catch (_) {} this.foldListening = false; }
+    if (this.foldModeListening) { try { display.off('foldDisplayModeChange', this.foldModeChanged); } catch (_) {} this.foldModeListening = false; }
+  }
   private safeError(error: Error): string {
     if (!this.client.userFacingError(error)) { return ''; }
     if (error.message.includes('UNSAFE_THREAD')) { return '该会话权限过宽，Mac 网关当前拒绝控制。请选择受限会话。'; }
@@ -74,7 +118,15 @@ export struct WorkspaceView {
     return error.message.slice(0, 220);
   }
   private setSidebar(show: boolean): void { this.getUIContext().animateTo({ duration: this.client.reduceMotion ? 0 : 220, curve: Curve.EaseOut }, () => { this.sidebarOpen = show; }); }
+  private resizeWorkspace(area: Area): void {
+    const width: number = Number(area.width);
+    const height: number = Number(area.height);
+    this.viewportWidth = width; this.viewportHeight = height;
+    this.updateSidebarLayout();
+  }
+  private navigateFromSidebar(page: string): void { if (!this.wideScreen) { this.setSidebar(false); } this.changePage(page); }
   private changePage(page: string): void {
+    if (page === 'gateway-guide') { this.gatewayGuideReturn = this.page; }
     if (page === 'new-conversation') { this.workTab = 0; this.showProjects = true; return; }
     this.getUIContext().animateTo({ duration: this.client.reduceMotion ? 0 : 160, curve: Curve.EaseOut }, () => { this.page = page; });
   }
@@ -112,14 +164,19 @@ export struct WorkspaceView {
     } catch (error) { this.errorText = this.safeError(error as Error); }
   }
 
+  private showsBackButton(): boolean { return ['settings', 'connect', 'message', 'image', 'diff', 'gateway-guide'].includes(this.page); }
+
   @Builder
   private Header() {
     Row({ space: 10 }) {
-      Button() { SymbolGlyph(this.page === 'settings' || this.page === 'connect' || (this.page === 'message' || this.page === 'image' || this.page === 'diff') ? $r('sys.symbol.chevron_left') : $r('sys.symbol.line_3_horizontal')).fontSize(21).fontColor([AppTheme.text]) }
-        .id(this.page === 'settings' || this.page === 'connect' || (this.page === 'message' || this.page === 'image' || this.page === 'diff') ? 'back-button' : 'navigation-toggle').width(44).height(44).backgroundColor(Color.Transparent).accessibilityText(this.page === 'settings' || this.page === 'connect' || (this.page === 'message' || this.page === 'image' || this.page === 'diff') ? '返回会话' : '打开侧栏')
-        .onClick(() => { if (this.page === 'settings' || this.page === 'connect' || (this.page === 'message' || this.page === 'image' || this.page === 'diff')) { this.changePage('chat'); } else { this.setSidebar(!this.sidebarOpen); if (this.sidebarOpen) { this.client.refreshNavigation().catch((e: Error) => { this.errorText = this.safeError(e); }); } } })
+      Button() {
+        if (this.showsBackButton()) { SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(21).fontColor([AppTheme.text]) }
+        else { Image(this.sidebarOpen ? $r('app.media.navigation_sidebar') : $r('app.media.navigation_sidebar_closed')).width(24).height(24).objectFit(ImageFit.Contain).colorFilter(AppTheme.secondary) }
+      }
+        .id(this.showsBackButton() ? 'back-button' : 'navigation-toggle').width(44).height(44).backgroundColor(Color.Transparent).accessibilityText(this.showsBackButton() ? (this.page === 'gateway-guide' ? '返回上一页' : '返回会话') : this.sidebarOpen ? '收起侧栏' : '展开侧栏')
+        .onClick(() => { if (this.showsBackButton()) { this.changePage(this.page === 'gateway-guide' ? this.gatewayGuideReturn : 'chat'); } else { this.sidebarChoice = !this.sidebarOpen; this.setSidebar(this.sidebarChoice); if (this.sidebarOpen) { this.client.refreshNavigation().catch((e: Error) => { this.errorText = this.safeError(e); }); } } })
       Column({ space: 3 }) {
-        Row({ space: 6 }) { Text(this.page === 'settings' ? '设置' : this.page === 'connect' ? '连接 Mac' : this.page === 'diff' ? '代码变更' : this.page === 'image' ? (this.client.imageLabel || '图片') : this.page === 'message' ? '完整内容' : this.page === 'chat' ? (this.client.activeContainerName || (this.client.canCreateThread ? '新任务' : '选择会话')) : '远码').fontSize(17).fontWeight(FontWeight.Medium).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); if (this.page === 'chat' && this.client.authenticated) { SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(10).fontColor([AppTheme.secondary]) } }
+        Row({ space: 6 }) { Text(this.page === 'gateway-guide' ? '网关搭建说明' : this.page === 'settings' ? '设置' : this.page === 'connect' ? '连接 Mac' : this.page === 'diff' ? '代码变更' : this.page === 'image' ? (this.client.imageLabel || '图片') : this.page === 'message' ? '完整内容' : this.page === 'chat' ? (this.client.activeContainerName || (this.client.canCreateThread ? '新任务' : '选择会话')) : '远码').fontSize(17).fontWeight(FontWeight.Medium).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); if (this.page === 'chat' && this.client.authenticated) { SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(10).fontColor([AppTheme.secondary]) } }
 
         if (this.page === 'chat' || this.page === 'projects' || this.page === 'threads') { Text(this.client.selectedThreadName || (this.client.authenticated ? '已连接 Mac' : this.client.status)).fontSize(11).fontColor(AppTheme.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }) }
       }.layoutWeight(1).alignItems(HorizontalAlign.Center).constraintSize({ minHeight: 44 }).id('project-selector').accessibilityText('选择' + this.client.containerName + '或最近会话').onClick(() => { if (this.page === 'chat' && this.client.authenticated) { this.showProjects = true; this.client.refreshNavigation().catch((e: Error) => { this.errorText = this.safeError(e); }); } })
@@ -142,15 +199,16 @@ export struct WorkspaceView {
           Text(this.client.authenticated ? '可以从侧栏选择项目和会话，继续你的工作。' : this.client.hasKnownMac ? (this.client.recoveryIssue || '已保存 Mac 身份，网络恢复后自动连接，无需重新扫码。') : '在 Mac 上生成配对码，扫描一次即可切换两种智能体。').fontSize(14).lineHeight(24).fontColor(AppTheme.secondary).textAlign(TextAlign.Center)
         }.width('100%').padding({ top: 32, bottom: 12 })
         Column({ space: 6 }) {
-          if (!this.client.authenticated) { Text('首次使用，请先在自己的 Mac 安装网关并自行部署中继。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%') }
+          if (!this.client.authenticated) { Text('首次使用，请先在 Mac 安装网关；同一局域网无需部署中继。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%') }
           Row() {
-            Hyperlink('https://github.com/fxz26284407/yuanma-harmony#readme', '查看网关搭建指南（GitHub）').id('gateway-guide-connect').color(this.client.appearance === 'light' ? '#287889' : '#86CDDD').height(44).accessibilityText('在系统浏览器打开 GitHub 网关搭建指南')
+            Button('网关搭建说明').id('gateway-guide-connect').fontSize(14).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).height(44).onClick(() => { this.changePage('gateway-guide'); })
           }.width('100%').padding({ left: 16, right: 16 }).justifyContent(FlexAlign.Center).backgroundColor(AppTheme.subtle).borderRadius(14)
         }.width('100%')
         if (this.client.authenticated) {
           Column({ space: 12 }) {
             Row({ space: 10 }) { SymbolGlyph($r('sys.symbol.link')).fontSize(22).fontColor([AppTheme.text]); Text('Mac').fontSize(17).fontColor(AppTheme.text).layoutWeight(1); Text('端到端加密').fontSize(12).fontColor(AppTheme.accent) }.height(44).width('100%')
             Text(this.client.projects.length + ' 个授权' + this.client.containerName).fontSize(13).fontColor(AppTheme.secondary).width('100%')
+            Button('断开连接').id('disconnect-mac').width('100%').height(44).fontColor(AppTheme.error).backgroundColor(Color.Transparent).onClick(() => { this.client.pauseConnection(); })
             Button('返回工作').width('100%').height(48).fontColor(AppTheme.primaryText).backgroundColor(AppTheme.primary).borderRadius(16).onClick(() => { this.changePage(this.client.selectedProjectId ? 'chat' : 'projects'); })
           }.padding(20).width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(20)
         } else if (this.client.hasKnownMac) {
@@ -162,7 +220,7 @@ export struct WorkspaceView {
         } else {
           Column({ space: 16 }) {
             Text('连接 ' + this.client.agentName).fontSize(14).fontWeight(FontWeight.Medium).fontColor(AppTheme.text).width('100%')
-            Text('npm run pairing:qr').fontFamily('monospace').fontSize(14).fontColor(AppTheme.link).copyOption(CopyOptions.LocalDevice).padding(14).width('100%').backgroundColor(AppTheme.contentSurface).borderRadius(12)
+            Text('yuanma-gateway pair').fontFamily('monospace').fontSize(14).fontColor(AppTheme.link).copyOption(CopyOptions.LocalDevice).padding(14).width('100%').backgroundColor(AppTheme.contentSurface).borderRadius(12)
             Divider().color(AppTheme.contentSurface)
             Text('扫描配对二维码').fontSize(14).fontWeight(FontWeight.Medium).fontColor(AppTheme.text).width('100%')
             Button('扫码连接 Mac').width('100%').height(50).fontColor(AppTheme.primaryText).backgroundColor(AppTheme.primary).borderRadius(16).enabled(this.client.initialized && !this.client.busy).onClick(() => { this.scan(); })
@@ -443,6 +501,7 @@ export struct WorkspaceView {
       this.Header()
       if (this.errorText.length > 0) { Row({ space: 8 }) { Text(this.errorText).fontSize(13).fontColor(AppTheme.error).lineHeight(21).layoutWeight(1); Button() { SymbolGlyph($r('sys.symbol.xmark')).fontSize(14).fontColor([AppTheme.error]) }.width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('关闭错误提示').onClick(() => { this.errorText = ''; }) }.id('error-banner').padding({ left: 14, right: 4 }).width('100%').backgroundColor(AppTheme.errorSurface).borderRadius(14) }
       if (this.page === 'connect') { this.Connect() }
+      else if (this.page === 'gateway-guide') { GatewayGuide() }
       else if (this.page === 'projects') { this.Projects() }
       else if (this.page === 'threads') { this.Threads() }
       else if (this.page === 'chat') { this.Chat() }
@@ -461,19 +520,20 @@ export struct WorkspaceView {
   }
   build() {
     SideBarContainer(this.wideScreen ? SideBarContainerType.Embed : SideBarContainerType.Overlay) {
-      NavigationDrawer({ client: this.client, agentKind: this.client.selectedAgent, reduceTransparency: this.client.reduceTransparency, onNavigate: (page: string) => { this.setSidebar(false); this.changePage(page); } }).zIndex(1)
+      NavigationDrawer({ client: this.client, agentKind: this.client.selectedAgent, reduceTransparency: this.client.reduceTransparency, embedded: true, onNavigate: (page: string) => { this.navigateFromSidebar(page); } }).zIndex(1)
       Stack({ alignContent: Alignment.TopStart }) {
         this.MainContent()
         if (!this.wideScreen && this.sidebarOpen) {
           // The native sidebar paints an opaque backing; overlay the mobile drawer after the page so blur samples real content.
           Blank().width('100%').height('100%').backgroundColor(AppTheme.scrim).transition(TransitionEffect.OPACITY).onClick(() => { this.setSidebar(false); })
-          NavigationDrawer({ client: this.client, agentKind: this.client.selectedAgent, reduceTransparency: this.client.reduceTransparency, onNavigate: (page: string) => { this.setSidebar(false); this.changePage(page); } })
+          NavigationDrawer({ client: this.client, agentKind: this.client.selectedAgent, reduceTransparency: this.client.reduceTransparency, onNavigate: (page: string) => { this.navigateFromSidebar(page); } })
             .width(Math.min(340, Math.max(280, this.viewportWidth * 0.76))).height('100%').transition(TransitionEffect.move(TransitionEdge.START))
         }
       }.width('100%').height('100%')
-    }.showSideBar(this.wideScreen).showControlButton(false).sideBarWidth(300).minSideBarWidth(260).maxSideBarWidth(340)
-      .onAreaChange((_old: Area, area: Area) => { this.viewportWidth = Number(area.width); this.wideScreen = this.viewportWidth >= 840; })
-      .height('100%').width('100%')
+    }.showSideBar(this.wideScreen && this.sidebarOpen).showControlButton(false).sideBarWidth(300).minSideBarWidth(260).maxSideBarWidth(340).minContentWidth(280).autoHide(false)
+      .onAreaChange((_old: Area, area: Area) => { this.resizeWorkspace(area); })
+      .height('100%').width('100%').backgroundColor(AppTheme.background)
+      .linearGradientBlur(this.client.reduceMotion ? 0 : this.foldBlur, { fractionStops: [[0, 0], [0, 0.5], [1, 1]], direction: this.foldOpening ? GradientDirection.Right : GradientDirection.Left })
       .bindSheet(this.showProjects || this.showRequest || this.showPermissions || this.showThreadRename, this.ActiveSheet, { height: SheetSize.FIT_CONTENT, dragBar: true, showClose: false, backgroundColor: AppTheme.fallbackColor(this.client.reduceTransparency), systemMaterial: AppTheme.material(this.client.reduceTransparency), blurStyle: AppTheme.fallbackBlur(this.client.reduceTransparency), onDisappear: () => { this.showProjects = false; this.showRequest = false; this.showPermissions = false; this.showThreadRename = false; } })
   }
 
