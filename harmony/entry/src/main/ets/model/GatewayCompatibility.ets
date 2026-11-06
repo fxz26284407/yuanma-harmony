@@ -1,6 +1,6 @@
 // App 发布时维护最低兼容版本，用户无需自行调整。
 export const MIN_GATEWAY_VERSION: string = '0.1.7';
-export const GATEWAY_UPDATE_COMMAND: string = 'npm install -g @fxz26284407/yuanma-gateway@latest';
+export const GATEWAY_UPDATE_COMMAND: string = 'npm install -g @fxz26284407/yuanma-gateway@latest --registry=https://registry.npmmirror.com';
 export interface GatewayInfo { gatewayVersion?: string; }
 
 export function requireGatewayVersion(version?: string): string {
