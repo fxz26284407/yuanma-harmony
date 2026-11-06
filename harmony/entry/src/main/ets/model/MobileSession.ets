@@ -888,7 +888,7 @@ export class MobileSession extends UiState {
       created = await this.rpc.request<ThreadItem>('POST', '/v1/threads', body, this.authorization());
       await this.identity.put(key, ''); this.pendingCreation = undefined; this.selectedProjectId = projectId;
     } catch (error) {
-      if (!hadPending && error instanceof RemoteError && ['INVALID_REQUEST', 'PROJECT_FORBIDDEN', 'CREATION_NOT_STARTED'].includes(error.code)) { await this.identity.put(key, ''); this.pendingCreation = undefined; }
+      if (error instanceof RemoteError && (error.code === 'CREATION_NOT_STARTED' || (!hadPending && ['INVALID_REQUEST', 'PROJECT_FORBIDDEN'].includes(error.code)))) { await this.identity.put(key, ''); this.pendingCreation = undefined; }
       throw error as Error;
     } finally { this.busy = false; }
     if (created) { await this.selectThread(created); await this.refreshNavigation(); }
