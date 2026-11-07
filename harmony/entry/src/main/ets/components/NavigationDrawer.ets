@@ -82,10 +82,10 @@ export struct NavigationDrawer {
   @Builder
   private Editor() {
     Column({ space: 14 }) {
-      SheetHeader({ title: this.panel === 'create' ? '新建项目' : this.panel === 'rename' || this.panel === 'projectRename' ? '重新命名' : this.panel === 'projectSection' ? '分区' : this.panel === 'project' ? '移动到项目' : '移动到分区', onClose: () => { this.panel = ''; } })
+      SheetHeader({ title: this.panel === 'create' ? '新建' + this.client.containerName : this.panel === 'rename' || this.panel === 'projectRename' ? '重新命名' : this.panel === 'projectSection' ? '分区' : this.panel === 'project' ? '移动到项目' : '移动到分区', onClose: () => { this.panel = ''; } })
       if (this.panel === 'create') {
-        Text('项目目录位于 Mac 的 ' + this.client.projectCreationPath + ' 下，创建后自动授权此设备执行。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
-        TextInput({ text: this.editName, placeholder: '输入项目名称' }).id('new-project-name').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(80).onChange((value: string) => { this.editName = value; })
+        Text(this.client.containerName + '目录位于电脑的 ' + this.client.projectCreationPath + ' 下，创建后自动授权此设备执行。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
+        TextInput({ text: this.editName, placeholder: '输入' + this.client.containerName + '名称' }).id('new-project-name').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(80).onChange((value: string) => { this.editName = value; })
       } else if (this.panel === 'rename' || this.panel === 'projectRename') { TextInput({ text: this.editName, placeholder: this.panel === 'projectRename' ? '输入项目名称' : '输入会话名称' }).id(this.panel === 'projectRename' ? 'project-name-input' : 'thread-name-input').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(80).onChange((value: string) => { this.editName = value; }) }
       else if (this.panel === 'project') {
         Text('移动后，后续任务会在该项目目录工作，审批模式保持不变。请先完成当前任务并处理待发送消息。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
@@ -133,7 +133,7 @@ export struct NavigationDrawer {
         .enabled(this.client.authenticated).onClick(() => { if (this.contextProjectId !== project.id) { this.toggle(project.id, this.projectClosed(project)); } })
       if (!this.projectClosed(project)) {
         ForEach(project.threads.filter((t: NavigationThread) => t.name.toLowerCase().includes(this.search.toLowerCase())), (t: NavigationThread) => { this.ThreadRow(t) }, (t: NavigationThread) => this.threadKey(t))
-        if (project.threads.length === 0) { Text(project.capability === 'none' ? '在 Mac 上授权后查看会话' : '暂无会话').id('project-empty-' + project.id).fontSize(12).fontColor(AppTheme.secondary).padding({ left: 42, top: 8, bottom: 8 }).width('100%') }
+        if (project.threads.length === 0) { Text(project.capability === 'none' ? '在电脑上授权后查看会话' : '暂无会话').id('project-empty-' + project.id).fontSize(12).fontColor(AppTheme.secondary).padding({ left: 42, top: 8, bottom: 8 }).width('100%') }
       }
     }.width('100%').alignItems(HorizontalAlign.Start)
   }
@@ -143,7 +143,7 @@ export struct NavigationDrawer {
         Image($r('app.media.yuanma_logo_transparent')).id('navigation-logo').width(34).height(34).objectFit(ImageFit.Contain).colorFilter(AppTheme.text).draggable(false).accessibilityLevel('no')
         Text('远码').id('navigation-brand').fontSize(20).fontWeight(FontWeight.Bold).fontColor(AppTheme.text).layoutWeight(1)
         Button() { SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(18).fontColor([AppTheme.secondary]) }
-          .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('刷新 Mac 导航')
+          .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('刷新电脑导航')
           .onClick(() => { this.client.refreshNavigation().catch((e: Error) => { this.error = e.message; }); })
       }.height(44).width('100%')
       Row({ space: 8 }) {
@@ -172,13 +172,12 @@ export struct NavigationDrawer {
               Button() { Row({ space: 8 }) { Text('固定').fontSize(13).fontColor(AppTheme.secondary).layoutWeight(1); Text((this.client.navigation.pinned || []).length.toString()).fontSize(11).fontColor(AppTheme.muted); SymbolGlyph(this.client.pinnedCollapsed ? $r('sys.symbol.chevron_right') : $r('sys.symbol.chevron_down')).fontSize(12).fontColor([AppTheme.secondary]) }.padding({ left: 12, right: 12 }).height(44).width('100%') }.id('pinned-section-toggle').type(ButtonType.Normal).height(44).width('100%').backgroundColor(Color.Transparent).accessibilityText(this.client.pinnedCollapsed ? '展开固定会话' : '收起固定会话').onClick(() => { this.client.pinnedCollapsed = !this.client.pinnedCollapsed; })
               if (!this.client.pinnedCollapsed) { ForEach(this.client.navigation.pinned || [], (thread: NavigationThread) => { this.ThreadRow(thread, false) }, (thread: NavigationThread) => this.threadKey(thread)) }
             }
-            if (this.client.selectedAgent === 'deepseek') { Text('工作区').fontSize(12).fontColor(AppTheme.secondary).padding({ left: 12 }).width('100%') }
             ForEach(this.sections(), (s: NavigationSection) => {
               Column({ space: 2 }) {
                 Button() {
-                  Row({ space: 8 }) { if (this.client.selectedAgent === 'deepseek') { SymbolGlyph($r('sys.symbol.folder')).fontSize(18).fontColor([AppTheme.secondary]) } Text(s.name).fontSize(13).fontColor(AppTheme.secondary).layoutWeight(1); if (s.capability === 'none') { Text('未授权').fontSize(10).fontColor(AppTheme.muted) } SymbolGlyph(this.sectionClosed(s) ? $r('sys.symbol.chevron_right') : $r('sys.symbol.chevron_down')).fontSize(12).fontColor([AppTheme.secondary]) }.padding({ left: 12, right: 12 }).height(44).width('100%')
+                  Row({ space: 8 }) { Text(s.name).fontSize(13).fontColor(AppTheme.secondary).layoutWeight(1); if (s.capability === 'none') { Text('未授权').fontSize(10).fontColor(AppTheme.muted) } SymbolGlyph(this.sectionClosed(s) ? $r('sys.symbol.chevron_right') : $r('sys.symbol.chevron_down')).fontSize(12).fontColor([AppTheme.secondary]) }.padding({ left: 12, right: 12 }).height(44).width('100%')
                 }.id('navigation-section-' + s.id).type(ButtonType.Normal).width('100%').height(44).backgroundColor(Color.Transparent).onClick(() => { this.toggle(s.id, this.sectionClosed(s)); })
-                if (!this.sectionClosed(s)) { if (s.capability === 'none') { Text('在 Mac 上授权后查看会话').fontSize(12).fontColor(AppTheme.secondary).padding({ left: 12, top: 8, bottom: 8 }) } ForEach(s.projects, (p: NavigationProject) => { this.ProjectRow(p) }, (p: NavigationProject) => this.projectKey(p)); ForEach(s.threads || [], (thread: NavigationThread) => { this.ThreadRow(thread, false) }, (thread: NavigationThread) => this.threadKey(thread)) }
+                if (!this.sectionClosed(s)) { if (s.capability === 'none') { Text('在电脑上授权后查看会话').fontSize(12).fontColor(AppTheme.secondary).padding({ left: 12, top: 8, bottom: 8 }) } ForEach(s.projects, (p: NavigationProject) => { this.ProjectRow(p) }, (p: NavigationProject) => this.projectKey(p)); ForEach(s.threads || [], (thread: NavigationThread) => { this.ThreadRow(thread, false) }, (thread: NavigationThread) => this.threadKey(thread)) }
               }.width('100%')
             }, (s: NavigationSection) => this.sectionKey(s))
             if (this.client.canCreateProject || this.client.navigation.projects.length > 0) {
@@ -186,7 +185,7 @@ export struct NavigationDrawer {
             Row() {
               Text(this.client.containerName).fontSize(12).fontColor(AppTheme.secondary).layoutWeight(1)
               if (this.client.canCreateProject) {
-              Button('新建项目').id('new-project-button').height(44).fontSize(12).fontColor(AppTheme.text).backgroundColor(Color.Transparent).enabled(this.client.authenticated && !this.client.busy).onClick(() => { this.error = ''; if (this.client.newProjectCapability !== 'control') { this.error = '请先在 Mac 将此设备的新项目权限设为自动可执行'; return; } this.editName = ''; this.panel = 'create'; })
+              Button('新建' + this.client.containerName).id('new-project-button').height(44).fontSize(12).fontColor(AppTheme.text).backgroundColor(Color.Transparent).enabled(this.client.authenticated && !this.client.busy).onClick(() => { this.error = ''; if (this.client.newProjectCapability !== 'control') { this.error = '请先在电脑将此设备的新' + this.client.containerName + '权限设为自动可执行'; return; } this.editName = ''; this.panel = 'create'; })
               }
             }.padding({ left: 12 }).width('100%')
             ForEach(this.client.navigation.projects, (p: NavigationProject) => { this.ProjectRow(p) }, (p: NavigationProject) => this.projectKey(p))
@@ -194,12 +193,12 @@ export struct NavigationDrawer {
             Divider().color(AppTheme.subtle).margin({ top: 4, bottom: 4 })
             Text('最近会话').fontSize(12).fontColor(AppTheme.secondary).padding({ left: 12 }).width('100%')
             ForEach(this.client.navigation.recent.filter((t: NavigationThread) => t.name.toLowerCase().includes(this.search.toLowerCase())), (t: NavigationThread) => { this.ThreadRow(t, false) }, (t: NavigationThread) => this.threadKey(t))
-          } else { Text(this.client.authenticated ? '正在同步 Mac 导航…' : '连接 Mac 后同步会话').fontSize(14).fontColor(AppTheme.secondary) }
+          } else { Text(this.client.authenticated ? '正在同步电脑导航…' : '连接电脑后同步会话').fontSize(14).fontColor(AppTheme.secondary) }
         }.width('100%').alignItems(HorizontalAlign.Start)
       }.layoutWeight(1).width('100%').scrollBar(BarState.Off).align(Alignment.TopStart).initialOffset({ xOffset: 0, yOffset: 0 })
       Row({ space: 8 }) {
         Circle().width(7).height(7).fill(this.client.authenticated ? AppTheme.success : AppTheme.secondary)
-        Text(this.client.authenticated ? '已连接  ·  Mac' : this.client.status).fontSize(12).fontColor(AppTheme.secondary).layoutWeight(1).id('navigation-connection-status').accessibilityText('查看 Mac 连接状态').onClick(() => { this.onNavigate('connect'); })
+        Text(this.client.authenticated ? '已连接  ·  电脑' : this.client.status).fontSize(12).fontColor(AppTheme.secondary).layoutWeight(1).id('navigation-connection-status').accessibilityText('查看电脑连接状态').onClick(() => { this.onNavigate('connect'); })
         Button() { SymbolGlyph($r('sys.symbol.gearshape')).fontSize(21).fontColor([AppTheme.text]) }.width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('连接与设置').onClick(() => { this.onNavigate('settings'); })
       }.width('100%').height(44)
     }.padding({ left: 14, right: 14, top: 16, bottom: 12 }).height('100%').width('100%').alignItems(HorizontalAlign.Start)

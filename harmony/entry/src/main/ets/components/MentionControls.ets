@@ -16,7 +16,7 @@ export struct MentionControls {
   private scroller: Scroller = new Scroller();
   private commands(): AgentCommand[] {
     if (this.kind !== 'skill') { return []; }
-    return ['goal', 'plan', 'compact'].map((name: string): AgentCommand => this.client.agentCommands.find((c: AgentCommand) => c.name === name) || { name: name, description: '当前网关未提供此命令，请更新 Mac 网关' });
+    return ['goal', 'plan', 'compact'].map((name: string): AgentCommand => this.client.agentCommands.find((c: AgentCommand) => c.name === name) || { name: name, description: '当前网关未提供此命令，请更新电脑网关' });
   }
   private commandLabel(name: string): string { return name === 'goal' ? '目标 /goal' : name === 'plan' ? '计划 /plan' : '压缩 /compact'; }
   private commandAvailable(name: string): boolean { return this.client.agentCommands.some((c: AgentCommand) => c.name === name); }
@@ -37,7 +37,7 @@ export struct MentionControls {
   private Menu() {
     Column({ space: 8 }) {
       Text(this.kind === 'skill' ? '/ 命令与技能' : '@ 插件').fontSize(13).fontColor(AppTheme.secondary).width('100%').padding({ left: 8 })
-      Search({ value: this.query, placeholder: '搜索 Mac 已安装的扩展' }).id('extension-search').height(44).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).onChange((value: string) => { this.search(value); })
+      Search({ value: this.query, placeholder: '搜索电脑已安装的扩展' }).id('extension-search').height(44).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).onChange((value: string) => { this.search(value); })
       if (!this.client.extensionLoading && this.client.extensionTotal > this.client.extensionItems.length) { Text('共 ' + this.client.extensionTotal + ' 项，输入关键词查找更多').fontSize(11).fontColor(AppTheme.secondary).width('100%').padding({ left: 8 }) }
       if (this.client.extensionLoading) { LoadingProgress().height(22).width(22).color(AppTheme.accent) }
       Scroll(this.scroller) {

@@ -12,7 +12,7 @@ export abstract class UiState {
   commandFeedback: string = '';
   commandPending: boolean = false;
   get agentCommands(): AgentCommand[] { return this.capabilities.commands || []; }
-  get contextPercent(): number { const c = this.runtime.context; return c && c.limit > 0 ? Math.min(100, Math.round(c.used / c.limit * 100)) : -1; }
+  get contextPercent(): number { const c = this.runtime.context; return c && Number.isFinite(c.used) && c.used >= 0 && Number.isFinite(c.limit) && c.limit > 0 ? Math.min(100, Math.round(c.used / c.limit * 100)) : -1; }
   get goalLabel(): string {
     const goal = this.runtime.goal;
     if (!goal) { return ''; }
@@ -80,7 +80,7 @@ export abstract class UiState {
   permissionOptions: PermissionOption[] = [];
   get permissionChoices(): PermissionOption[] {
     if (this.permissionOptions.length || this.selectedAgent !== 'codex') { return this.permissionOptions; }
-    return [{ value: 'ask', label: '要求批准', description: '编辑项目外文件或访问网络前，先询问你' }, { value: 'auto', label: '代我批准', description: '由 Codex 对需要提升权限的操作进行自动审核', requiresConfirmation: true }, { value: 'full', label: '完整存取权', description: '可访问互联网及这台 Mac 上的文件', requiresConfirmation: true }];
+    return [{ value: 'ask', label: '要求批准', description: '编辑项目外文件或访问网络前，先询问你' }, { value: 'auto', label: '代我批准', description: '由 Codex 对需要提升权限的操作进行自动审核', requiresConfirmation: true }, { value: 'full', label: '完整存取权', description: '可访问互联网及这台电脑上的文件', requiresConfirmation: true }];
   }
   get permissionLabel(): string { const option = this.permissionChoices.find((o: PermissionOption) => o.value === this.permissionMode); return option?.shortLabel || option?.label || '自定义'; }
   permissionConfirmation(mode: string): boolean { return this.permissionChoices.find((o: PermissionOption) => o.value === mode)?.requiresConfirmation === true; }
@@ -104,7 +104,7 @@ export abstract class UiState {
   imageLabel: string = '';
   imageLoading: boolean = false;
   imageProgress: number = 0;
-  userFacingError(error: Error): string { if (error.name === 'GatewayVersionError') { return error.message; } if (error.name === 'LinkError' || (!this.authenticated && this.recovering)) { return this.hasKnownMac ? '' : '暂时无法连接 Mac，请检查网络后重试'; } return error.message.slice(0, 200); }
+  userFacingError(error: Error): string { if (error.name === 'GatewayVersionError') { return error.message; } if (error.name === 'LinkError' || (!this.authenticated && this.recovering)) { return this.hasKnownMac ? '' : '暂时无法连接电脑，请检查网络后重试'; } return error.message.slice(0, 200); }
   get canControlProject(): boolean { return this.authenticated && this.projects.some((p: ProjectItem) => p.id === this.selectedProjectId && p.capability === 'control'); }
   get canCreateProject(): boolean { return this.capabilities.createProjects ?? this.selectedAgent === 'codex'; }
   get projectActions(): ThreadAction[] { return this.capabilities.projectActions || (this.selectedAgent === 'codex' ? [{ action: 'rename', label: '重命名' }, { action: 'section', label: '分区' }] : []); }
@@ -170,7 +170,7 @@ export abstract class UiState {
 
   abstract saveDisplaySettings(reduceTransparency: boolean, reduceMotion: boolean, appearance?: string, showReasoning?: boolean): Promise<void>;
   abstract initialize(context: common.Context): Promise<void>;
-  abstract pair(materialText: string): Promise<void>;
+  abstract pair(materialText: string, switchComputer?: boolean): Promise<void>;
   abstract reconnect(): Promise<void>;
   abstract send(projectId: string, threadId: string, content: string): Promise<void>;
   abstract answerQuestion(request: ApprovalItem, values: Map<string, string>, selections?: Map<string, string[]>, notes?: Map<string, string>): Promise<void>;

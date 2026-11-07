@@ -1,6 +1,6 @@
 import { requireGatewayVersion, GatewayInfo } from './GatewayCompatibility';
 import { DEFAULT_AGENT, findAgent } from './Agents';
-import { PendingThreadCreation, AgentSelection, CreateProjectBody, ProjectManagementRequest } from './UiTypes';
+import { CompactPairMaterial, PendingThreadCreation, AgentSelection, CreateProjectBody, ProjectManagementRequest } from './UiTypes';
 import { connection } from '@kit.NetworkKit';
 import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -176,11 +176,13 @@ export class MobileSession extends UiState {
     this.applyAppearance();
     const legacy: string = await this.identity.get('knownMac');
     if (legacy) {
-      const mac = JSON.parse(legacy) as KnownMac; this.legacyGateway = mac.gatewayId;
-      if (!(await this.identity.get('knownMac.codex'))) { await this.identity.put('knownMac.codex', legacy); }
+      const mac = JSON.parse(legacy) as KnownMac;
+      const codexLegacy: string = await this.identity.get('knownMac.codex');
+      this.legacyGateway = codexLegacy ? (JSON.parse(codexLegacy) as KnownMac).gatewayId : mac.gatewayId;
+      if (!codexLegacy) { await this.identity.put('knownMac.codex', legacy); }
       if (!(await this.identity.get('agentStorageMigrated'))) {
         const pending: string = await this.identity.get('pendingSend');
-        const key: string = 'pendingSend.codex.' + mac.gatewayId;
+        const key: string = 'pendingSend.codex.' + this.legacyGateway;
         if (pending && !(await this.identity.get(key))) { await this.identity.put(key, pending); }
         await this.identity.put('agentStorageMigrated', 'true');
       }
@@ -201,6 +203,9 @@ export class MobileSession extends UiState {
     }
     this.mac = cached ? JSON.parse(cached) as KnownMac : undefined;
     this.hasKnownMac = this.mac !== undefined; this.fingerprint = this.mac?.gatewayId || '';
+    await this.loadAgentScope();
+  }
+  private async loadAgentScope(): Promise<void> {
     const creation: string = this.mac ? await this.identity.get('pendingCreate.' + this.selectedAgent + '.' + this.fingerprint) : '';
     this.pendingCreation = creation ? JSON.parse(creation) as PendingThreadCreation : undefined;
     const pending: string = this.mac ? await this.identity.get(this.pendingKey()) : '';
@@ -220,18 +225,22 @@ export class MobileSession extends UiState {
       this.pauseConnection(); await this.refreshTask?.catch(() => {}); await this.draftWrites;
       if (this.mac) { const selection: AgentSelection = { projectId: this.selectedProjectId, threadId: this.selectedThreadId, threadName: this.selectedThreadName }; await this.identity.put(this.selectionKey(), JSON.stringify(selection)); }
       await this.identity.put('selectedAgent', kind);
-      this.selectedAgent = kind; this.mac = undefined; this.hasKnownMac = false; this.fingerprint = ''; this.deviceId = ''; this.pendingSend = undefined; this.pendingCreation = undefined;
-      this.navigation = undefined; this.newProjectCapability = 'none'; this.projects = []; this.threads = []; this.messages = []; this.queueMessages = []; this.approvals = []; this.asyncQuestions = [];
-      this.selectedProjectId = ''; this.selectedThreadId = ''; this.selectedThreadName = ''; this.currentTurnId = ''; this.waiting = false; this.activityTitle = ''; this.runtimeStatusKnown = true;
-      this.draft = ''; this.references = []; this.attachments = []; this.olderMessages = []; this.historyCursor = ''; this.readingMessage = undefined; this.readingChunks = []; this.readingMore = false;
-      this.changes = undefined; this.diffReview = undefined; this.diffText = ''; this.diffFileId = ''; this.diffMore = false; this.imageUri = ''; this.selectedImageId = ''; this.projectCreationPath = '~/workspace';
-      this.selectedModel = ''; this.selectedEffort = ''; this.selectedServiceTier = ''; this.modelDetail = ''; this.permissionOptions = []; this.permissionMode = 'ask'; this.permissionMobileControl = false; this.fullAccessConfirmed = false;
-      this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = ''; this.suggestionText = ''; this.suggestionState = 'idle'; this.suggestionRequestKey = ''; this.suggestionTurnId = ''; this.suggestionPending = false; this.recoveryIssue = '';
+      this.selectedAgent = kind; this.mac = undefined; this.hasKnownMac = false; this.fingerprint = ''; this.resetAgentView();
       await this.loadAgent(); this.connectionVersion++;
       this.status = this.hasKnownMac ? '已切换到 ' + this.agentName : '请连接 ' + this.agentName;
-      this.detail = this.hasKnownMac ? '正在恢复该智能体的连接' : '扫描 Mac 网关的配对码，所有智能体共用此连接';
+      this.detail = this.hasKnownMac ? '正在恢复该智能体的连接' : '扫描电脑网关的配对码，所有智能体共用此连接';
     } finally { this.busy = false; }
     if (this.hasKnownMac) { await this.reconnect(); }
+  }
+  private resetAgentView(): void {
+    this.runtime = {}; this.commandFeedback = ''; this.commandPending = false; this.pendingAgentCommand = undefined;
+    this.deviceId = ''; this.pendingSend = undefined; this.pendingCreation = undefined;
+    this.navigation = undefined; this.newProjectCapability = 'none'; this.projects = []; this.threads = []; this.messages = []; this.queueMessages = []; this.approvals = []; this.asyncQuestions = [];
+    this.selectedProjectId = ''; this.selectedThreadId = ''; this.selectedThreadName = ''; this.currentTurnId = ''; this.waiting = false; this.activityTitle = ''; this.runtimeStatusKnown = true;
+    this.draft = ''; this.references = []; this.attachments = []; this.olderMessages = []; this.historyCursor = ''; this.readingMessage = undefined; this.readingChunks = []; this.readingMore = false;
+    this.changes = undefined; this.diffReview = undefined; this.diffText = ''; this.diffFileId = ''; this.diffMore = false; this.imageUri = ''; this.selectedImageId = ''; this.projectCreationPath = '~/workspace';
+    this.selectedModel = ''; this.selectedEffort = ''; this.selectedServiceTier = ''; this.modelDetail = ''; this.permissionOptions = []; this.permissionMode = 'ask'; this.permissionMobileControl = false; this.fullAccessConfirmed = false;
+    this.lastSubmissionId = ''; this.lastMessageState = ''; this.lastPendingText = ''; this.suggestionText = ''; this.suggestionState = 'idle'; this.suggestionRequestKey = ''; this.suggestionTurnId = ''; this.suggestionPending = false; this.recoveryIssue = '';
   }
   private async connect(mac: KnownMac, generation: number = this.generation): Promise<void> {
     this.checkGeneration(generation); this.clearConnection(); this.gatewayVersion = ''; this.rpc.backend = this.selectedAgent; this.status = '正在建立安全会话';
@@ -248,54 +257,78 @@ export class MobileSession extends UiState {
     this.projectCreationPath = (await this.identity.get('projectCreationPath.' + mac.gatewayId)) || '~/workspace'; this.checkGeneration(generation);
   }
   private async sign(challenge: AuthChallenge, purpose: string, deviceId: string): Promise<string> {
-    if (this.mac === undefined) { throw new Error('缺少固定的 Mac 身份'); }
+    if (this.mac === undefined) { throw new Error('缺少固定的电脑身份'); }
     const context: AuthContext = { purpose: purpose, pinnedGatewayId: this.mac.gatewayId, expectedDeviceId: deviceId,
       transportPublicKey: this.transportPublic, sessionBinding: this.rpc.binding, signingPublicKey: this.signingPublic };
     return encode(await this.signer.signChallenge(authTranscript(challenge, context)));
   }
-  async pair(materialText: string): Promise<void> {
-    if (this.busy || materialText.length > 8192) { throw new Error('配对材料过大或操作尚未完成'); }
-    const material = JSON.parse(materialText) as PairMaterial;
+  async pair(materialText: string, switchComputer: boolean = false): Promise<void> {
+    if (!this.initialized || (this.busy && !this.recovering) || this.extensionSyncing || this.imageLoading || this.diffLoading || materialText.length > 8192) { throw new Error('配对材料过大或操作尚未完成'); }
+    let material = JSON.parse(materialText) as PairMaterial;
+    const compact = JSON.parse(materialText) as CompactPairMaterial;
+    if (compact && compact.v !== undefined) {
+      if (compact.v !== 1 || typeof compact.k !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(compact.k)) { throw new Error('不支持的配对码或公钥格式'); }
+      material = { profile: 'Noise_IK_25519_ChaChaPoly_BLAKE2b', gatewayId: hex(native.sha256(decode(compact.k))), publicKey: compact.k,
+        pairingId: compact.i, secret: compact.s, expiresAt: compact.t, endpoint: compact.u, gatewayVersion: compact.g, connectionMode: compact.m };
+    }
     if (!material || material.profile !== 'Noise_IK_25519_ChaChaPoly_BLAKE2b' || typeof material.gatewayId !== 'string' || !/^[a-f0-9]{64}$/.test(material.gatewayId) ||
       typeof material.publicKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(material.publicKey) || typeof material.secret !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(material.secret) ||
       typeof material.pairingId !== 'string' || !material.pairingId || material.pairingId.length > 200 || !Number.isSafeInteger(material.expiresAt) || material.expiresAt <= Date.now()) { throw new Error('配对材料无效或已过期'); }
     requireGatewayVersion(material.gatewayVersion);
     const mode: string = material.connectionMode === undefined ? 'relay' : material.connectionMode;
     const endpoint: string = connectionEndpoint(material.endpoint || material.relayUrl, mode);
-    if (this.mac !== undefined && (this.mac.gatewayId !== material.gatewayId || this.mac.publicKey !== material.publicKey)) { throw new Error('Mac 身份变化，请先明确断开旧身份后重新确认'); }
     const previousMac: KnownMac | undefined = this.mac;
-    this.reconnectEnabled = true; this.busy = true; const generation = ++this.generation;
+    const changingScope: boolean = previousMac?.gatewayId !== material.gatewayId;
+    if (previousMac && previousMac.gatewayId === material.gatewayId && previousMac.publicKey !== material.publicKey) { throw new Error('已配对电脑的公钥变化，请先在电脑核对身份'); }
+    if (previousMac && changingScope && !switchComputer) { const error = new Error('扫描到另一台电脑，请确认是否切换'); error.name = 'ComputerChangeRequiredError'; throw error; }
+    const previousReconnect: boolean = this.reconnectEnabled;
+    const reconnect = this.reconnectTask;
+    this.busy = true; this.pauseConnection(); const generation: number = this.generation;
+    let scopeChanged: boolean = false;
     try {
+      await reconnect?.catch(() => {}); this.checkGeneration(generation); this.busy = true;
+      await this.refreshTask?.catch(() => {}); await this.draftWrites; this.checkGeneration(generation);
+      if (previousMac && changingScope) { const selection: AgentSelection = { projectId: this.selectedProjectId, threadId: this.selectedThreadId, threadName: this.selectedThreadName }; await this.identity.put(this.selectionKey(), JSON.stringify(selection)); this.checkGeneration(generation); }
       const mac: KnownMac = { gatewayId: material.gatewayId, publicKey: material.publicKey, endpoint: endpoint, connectionMode: mode };
       await this.connect(mac, generation);
+      if (changingScope) { scopeChanged = true; this.resetAgentView(); await this.loadAgentScope(); this.checkGeneration(generation); }
       const existingId: string = await this.identity.get(`device.${mac.gatewayId}`);
       this.checkGeneration(generation);
       if (existingId) {
         await this.login(existingId, generation); this.checkGeneration(generation);
-        await this.identity.put('knownMac', JSON.stringify(mac)); this.hasKnownMac = true;
-        this.detail = '连接地址已更新，原设备身份和项目权限保留'; return;
+        await this.identity.put('knownMac', JSON.stringify(mac)); this.checkGeneration(generation); this.hasKnownMac = true; this.reconnectEnabled = true;
+        this.detail = changingScope ? '已切换电脑，原电脑配对和草稿保留' : '连接地址已更新，原设备身份和项目权限保留'; return;
       }
-      const claimBody: ClaimBody = { pairingId: material.pairingId, secret: material.secret, name: 'HarmonyOS Codex Mobile', signingPublicKey: this.signingPublic };
-      const claim = await this.rpc.request<ClaimResult>('POST', '/v1/pairings/claim', claimBody);
+      const claimBody: ClaimBody = { pairingId: material.pairingId, secret: material.secret, name: '远码 · HarmonyOS', signingPublicKey: this.signingPublic };
+      const claim = await this.rpc.request<ClaimResult>('POST', '/v1/pairings/claim', claimBody); this.checkGeneration(generation);
       this.deviceId = claim.deviceId;
-      await this.identity.put(`device.${mac.gatewayId}`, claim.deviceId);
       const proof: ProofBody = { claimId: claim.claimId, challengeId: claim.challenge.challengeId, signature: await this.sign(claim.challenge, 'pair', claim.deviceId) };
-      await this.rpc.request<PairStatus>('POST', '/v1/pairings/proof', proof, `Pairing ${claim.claimToken}`);
-      this.status = '正在完成设备授权'; this.detail = '正在验证 Mac 预先授予的项目权限';
+      await this.rpc.request<PairStatus>('POST', '/v1/pairings/proof', proof, `Pairing ${claim.claimToken}`); this.checkGeneration(generation);
+      this.status = '正在完成设备授权'; this.detail = '正在验证电脑预先授予的项目权限';
       while (Date.now() < claim.expiresAt && generation === this.generation) {
-        const state = await this.rpc.request<PairStatus>('GET', `/v1/pairings/${claim.claimId}/status`, undefined, `Pairing ${claim.claimToken}`);
+        const state = await this.rpc.request<PairStatus>('GET', `/v1/pairings/${claim.claimId}/status`, undefined, `Pairing ${claim.claimToken}`); this.checkGeneration(generation);
         if (state.state === 'approved') {
-          await this.login(claim.deviceId, generation);
-          await this.identity.put('knownMac', JSON.stringify(mac)); this.hasKnownMac = true; return;
+          await this.login(claim.deviceId, generation); this.checkGeneration(generation);
+          await this.identity.put(`device.${mac.gatewayId}`, claim.deviceId); this.checkGeneration(generation);
+          await this.identity.put('knownMac', JSON.stringify(mac)); this.checkGeneration(generation); this.hasKnownMac = true; this.reconnectEnabled = true; return;
         }
         if (state.state !== 'pending') { throw new Error(`配对未完成：${state.state}`); }
         await new Promise<void>((resolve) => { setTimeout(resolve, 2000); });
       }
       throw new Error('配对已过期或被取消');
-    } catch (error) { this.mac = previousMac; this.fingerprint = previousMac?.gatewayId || ''; this.disconnect(); if (this.hasKnownMac && this.reconnectEnabled) { this.scheduleRecovery(500); } throw (error as Error); } finally { this.busy = false; }
+    } catch (error) {
+      this.disconnect(); this.mac = previousMac; this.fingerprint = previousMac?.gatewayId || ''; this.hasKnownMac = previousMac !== undefined; this.reconnectEnabled = previousReconnect;
+      if (scopeChanged) {
+        this.resetAgentView();
+        try { await this.identity.put('knownMac', previousMac ? JSON.stringify(previousMac) : ''); if (previousMac) { await this.loadAgentScope(); } }
+        catch (_) { this.recoveryIssue = '原电脑配对和草稿已保留，请重新连接恢复会话'; }
+      }
+      if (this.hasKnownMac && this.reconnectEnabled) { this.scheduleRecovery(500); }
+      throw error as Error;
+    } finally { this.busy = false; }
   }
   private async login(deviceId: string, generation: number = this.generation): Promise<void> {
-    if (this.mac === undefined) { throw new Error('缺少 Mac 身份'); }
+    if (this.mac === undefined) { throw new Error('缺少电脑身份'); }
     this.status = '正在验证设备身份';
     const data: LoginBody = { deviceId: deviceId, gatewayId: this.mac.gatewayId };
     const challenge = await this.rpc.request<AuthChallenge>('POST', '/v1/auth/challenge', data);
@@ -309,7 +342,7 @@ export class MobileSession extends UiState {
     this.authenticated = true;
     const status = await this.rpc.request<BackendStatus>('GET', '/v1/status', undefined, `Bearer ${this.token}`); this.checkGeneration(generation);
     const kind: string = status.backendKind || 'codex';
-    if (kind !== this.selectedAgent) { const error = new Error('当前 Mac 网关尚未提供 ' + this.agentName + '，请更新 Mac 网关后重连，无需重新扫码'); error.name = 'BackendMismatchError'; throw error; }
+    if (kind !== this.selectedAgent) { const error = new Error('当前电脑网关尚未提供 ' + this.agentName + '，请更新电脑网关后重连，无需重新扫码'); error.name = 'BackendMismatchError'; throw error; }
     this.backendKind = kind;
     const limits = status.uploadLimits;
     this.uploadLimits = { fileBytes: this.uploadLimit(limits?.fileBytes, 52428800, 8388608), imageBytes: this.uploadLimit(limits?.imageBytes, 8388608, 8388608), messageBytes: this.uploadLimit(limits?.messageBytes, 104857600, 8388608), maxAttachments: this.uploadLimit(limits?.maxAttachments, 4, 4), chunkBytes: this.uploadLimit(limits?.chunkBytes, 131072, 131072) };
@@ -318,7 +351,7 @@ export class MobileSession extends UiState {
     const legacy: boolean = !status.backendKind;
     this.capabilities = status.capabilities || { modelSettings: legacy, permissions: legacy, suggestions: legacy, steer: legacy, images: legacy, extensions: legacy, changes: legacy };
     if (status.backendReady && this.capabilities.modelSettings) { try { const models = await this.rpc.request<ModelItem[]>('GET', '/v1/models', undefined, `Bearer ${this.token}`); this.checkGeneration(generation); this.models = models; } catch (error) { if (!this.authenticated || generation !== this.generation) { throw error as Error; } } }
-    this.status = '已连接 Mac'; this.detail = status.backendReady ? '安全连接已恢复' : 'Mac 已连接，智能体后端暂未就绪';
+    this.status = '已连接电脑'; this.detail = status.backendReady ? '安全连接已恢复' : '电脑已连接，智能体后端暂未就绪';
     this.recovering = false; this.recoveryIssue = ''; this.retryDelay = 500; clearTimeout(this.retryTimer); this.connectionVersion++;
   }
   private uploadLimit(value: number | undefined, maximum: number, fallback: number): number { return value !== undefined && Number.isSafeInteger(value) && value > 0 ? Math.min(value, maximum) : fallback; }
@@ -352,7 +385,7 @@ export class MobileSession extends UiState {
   dispose(): void { this.setForeground(false); if (this.network) { try { this.network.unregister(() => {}); } catch (_) {} this.network = undefined; this.networkId = -1; } }
   reconnect(): Promise<void> {
     if (this.reconnectTask) { return this.reconnectTask; }
-    if (this.busy || this.mac === undefined) { return Promise.reject(new Error('没有已配对的 Mac，或操作尚未完成')); }
+    if (this.busy || this.mac === undefined) { return Promise.reject(new Error('没有已配对的电脑，或操作尚未完成')); }
     this.reconnectEnabled = true; this.recoveryIssue = ''; clearTimeout(this.retryTimer); const generation: number = ++this.generation;
     const task: Promise<void> = this.restoreConnection(generation); this.reconnectTask = task;
     task.then(() => { if (this.reconnectTask === task) { this.reconnectTask = undefined; } }, () => { if (this.reconnectTask === task) { this.reconnectTask = undefined; } }); return task;
@@ -363,15 +396,15 @@ export class MobileSession extends UiState {
       console.info('CM_CONNECTION restore-start');
       const mac = this.mac!; await this.connect(mac, generation); const id: string = await this.identity.get(`device.${mac.gatewayId}`); this.checkGeneration(generation); if (!id) { throw new Error('设备身份记录缺失，请重新配对'); }
       await this.login(id, generation);
-      try { const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.applyNavigation(navigation); await this.loadHistory(); await this.loadModelSettings(); } catch (error) { if (!this.authenticated || generation !== this.generation) { throw error as Error; } this.detail = '已连接 Mac，会话正在同步'; }
+      try { const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.applyNavigation(navigation); await this.loadHistory(); await this.loadModelSettings(); } catch (error) { if (!this.authenticated || generation !== this.generation) { throw error as Error; } this.detail = '已连接电脑，会话正在同步'; }
     } catch (error) {
       if (generation === this.generation) {
         this.rpc.close(); this.clearConnection();
         const failed = error as Error; console.warn('CM_CONNECTION restore-failed kind=' + failed.name + ' code=' + (failed instanceof RemoteError ? failed.code : 'local')); const denied: boolean = (failed instanceof RemoteError && failed.code === 'AUTH_DENIED') || failed.message.includes('身份与固定公钥不匹配') || failed.message.includes('身份记录缺失');
-        if (failed.name === 'GatewayVersionError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '请更新 Mac 网关'; this.detail = failed.message; clearTimeout(this.retryTimer); }
+        if (failed.name === 'GatewayVersionError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '请更新电脑网关'; this.detail = failed.message; clearTimeout(this.retryTimer); }
         else if (failed.name === 'BackendMismatchError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '智能体不匹配'; this.detail = failed.message; clearTimeout(this.retryTimer); }
         else if (failed.name === 'RelayConfigError') { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = failed.message; this.status = '需更新连接地址'; this.detail = this.recoveryIssue; clearTimeout(this.retryTimer); }
-        else if (denied) { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = '设备授权需要确认，请在 Mac 检查此设备'; this.status = '需检查 Mac 授权'; this.detail = this.recoveryIssue; clearTimeout(this.retryTimer); }
+        else if (denied) { this.reconnectEnabled = false; this.recovering = false; this.recoveryIssue = '设备授权需要确认，请在电脑检查此设备'; this.status = '需检查电脑授权'; this.detail = this.recoveryIssue; clearTimeout(this.retryTimer); }
         else { this.status = '正在恢复连接'; this.recovering = true; this.retryDelay = Math.min(15000, this.retryDelay * 2); this.scheduleRecovery(this.retryDelay); }
       }
       throw error as Error;
@@ -391,7 +424,7 @@ export class MobileSession extends UiState {
       await this.runAgentCommand(action, argument, true); return;
     }
     if (this.busy || (content.trim().length === 0 && this.references.length === 0 && this.attachments.length === 0)) { throw new Error('请输入指令或添加附件，并等待上一操作完成'); }
-    if (!this.projects.some((p: ProjectItem) => p.id === projectId && p.capability === 'control')) { throw new Error('该项目仅允许阅读，请在 Mac 调整设备授权'); }
+    if (!this.projects.some((p: ProjectItem) => p.id === projectId && p.capability === 'control')) { throw new Error('该项目仅允许阅读，请在电脑调整设备授权'); }
     if (this.pendingSend !== undefined && (!threadId || this.pendingSend.projectId !== projectId || this.pendingSend.threadId !== threadId)) { throw new Error('上一条发送结果未知，请先恢复原会话核对'); }
     this.busy = true;
     const sourceDraftKey = this.draftKey();
@@ -508,7 +541,7 @@ export class MobileSession extends UiState {
         if (error.code === 'THREAD_PENDING') { throw new Error('会话还有待处理或状态未确认的消息，请先核对'); }
         if (error.code === 'TURN_BUSY') { throw new Error('会话正在执行，完成或停止后再操作'); }
         if (error.code === 'PROJECT_FORBIDDEN') { throw new Error('没有目标项目的操作权限'); }
-        if (error.code === 'CHILD_THREAD_SCOPE') { throw new Error('包含其他项目的子会话，请在 Mac 处理封存'); }
+        if (error.code === 'CHILD_THREAD_SCOPE') { throw new Error('包含其他项目的子会话，请在电脑处理封存'); }
         if (error.code === 'THREAD_MISMATCH') { throw new Error('会话位置已变化，请刷新侧栏后重试'); }
         if (error.code === 'UNSAFE_THREAD') { throw new Error('请先确认此会话的审批权限，再移动项目'); }
       }
@@ -555,9 +588,9 @@ export class MobileSession extends UiState {
     try { const generation: number = this.generation; const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.applyNavigation(navigation); } finally { this.busy = false; }
   }
   async openNavigationThread(thread: NavigationThread): Promise<void> {
-    if (!thread.projectId) { throw new Error('该会话尚未分配项目，请先在 Mac 归入项目'); }
+    if (!thread.projectId) { throw new Error('该会话尚未分配项目，请先在电脑归入项目'); }
     const p = this.projects.find((item: ProjectItem) => item.id === thread.projectId);
-    if (p === undefined) { throw new Error('请在 Mac 为手机授权该项目'); }
+    if (p === undefined) { throw new Error('请在电脑为手机授权该项目'); }
     this.selectedProjectId = thread.projectId; await this.selectThread(thread);
   }
   async loadPermissions(): Promise<void> {
@@ -579,7 +612,7 @@ export class MobileSession extends UiState {
   }
   async loadExtensions(query: string, kind?: string): Promise<void> {
     if (!this.capabilities.extensions) { return; }
-    if (!this.authenticated || !this.selectedProjectId) { throw new Error('请先连接 Mac 并选择项目'); }
+    if (!this.authenticated || !this.selectedProjectId) { throw new Error('请先连接电脑并选择项目'); }
     const generation: number = ++this.extensionGeneration; const project: string = this.selectedProjectId; const thread: string = this.selectedThreadId; const mac: string = this.fingerprint; this.extensionLoading = true;
     try { const result = await this.rpc.request<ExtensionPage>('GET', '/v1/extensions?projectId=' + encodeURIComponent(this.selectedProjectId) + (this.selectedThreadId ? '&threadId=' + encodeURIComponent(this.selectedThreadId) : '') + '&query=' + encodeURIComponent(query) + (kind ? '&kind=' + encodeURIComponent(kind) : ''), undefined, this.authorization()); if (generation === this.extensionGeneration && mac === this.fingerprint && this.authenticated && project === this.selectedProjectId && thread === this.selectedThreadId) { this.extensionItems = result.items; this.extensionTotal = result.total; } }
     finally { if (generation === this.extensionGeneration) { this.extensionLoading = false; } }
@@ -591,17 +624,17 @@ export class MobileSession extends UiState {
   }
   async syncExtensions(): Promise<void> {
     if (!this.capabilities.extensions) { return; }
-    if (!this.authenticated || this.busy || this.extensionSyncing) { throw new Error('请先连接 Mac，并等待当前操作完成'); }
+    if (!this.authenticated || this.busy || this.extensionSyncing) { throw new Error('请先连接电脑，并等待当前操作完成'); }
     const selected: string = this.selectedProjectId; const thread: string = this.selectedThreadId;
     const project = this.projects.find((p: ProjectItem) => p.id === selected) || this.projects[0];
-    if (!project) { throw new Error('当前 Mac 没有已授权项目，暂时无法同步扩展'); }
+    if (!project) { throw new Error('当前电脑没有已授权项目，暂时无法同步扩展'); }
     const generation: number = ++this.extensionGeneration; const mac: string = this.fingerprint;
     this.extensionSyncing = true; this.extensionLoading = true; this.extensionSyncStatus = '';
     try {
       const scope: string = project.id === selected && thread ? '&threadId=' + encodeURIComponent(thread) : '';
       const result = await this.rpc.request<ExtensionPage>('GET', '/v1/extensions?projectId=' + encodeURIComponent(project.id) + scope + '&refresh=true', undefined, this.authorization());
       if (generation !== this.extensionGeneration || mac !== this.fingerprint || !this.authenticated || selected !== this.selectedProjectId || thread !== this.selectedThreadId) { return; }
-      if (!result.refreshed || result.skillCount === undefined || result.pluginCount === undefined) { throw new Error('当前 Mac 网关尚不支持手动同步，请先更新网关'); }
+      if (!result.refreshed || result.skillCount === undefined || result.pluginCount === undefined) { throw new Error('当前电脑网关尚不支持手动同步，请先更新网关'); }
       this.extensionItems = result.items; this.extensionTotal = result.total;
       this.extensionIconVersion++;
       this.references = this.references.map((ref: ExtensionItem) => result.items.find((item: ExtensionItem) => item.id === ref.id) || ref);
@@ -632,7 +665,7 @@ export class MobileSession extends UiState {
     } finally { this.busy = false; }
   }
   async pickFiles(): Promise<void> {
-    if (!this.capabilities.files) { throw new Error('请先更新 Mac 网关以支持文件上传'); }
+    if (!this.capabilities.files) { throw new Error('请先更新电脑网关以支持文件上传'); }
     if (this.busy || !this.canControlProject) { throw new Error('请先选择可执行项目，并等待当前操作完成'); }
     if (this.attachments.length >= this.uploadLimits.maxAttachments) { throw new Error('每条消息最多添加 4 个附件'); }
     if (!this.attachmentRoot || !this.appearanceContext) { throw new Error('文件存储尚未就绪'); }
@@ -756,9 +789,9 @@ export class MobileSession extends UiState {
       if (!this.imageRoot || !this.authenticated || project !== this.selectedProjectId || mac !== this.fingerprint) { throw new Error('图片缓存或连接不可用，请重新打开图片'); }
       let offset: number = 0; let version: string = ''; let file: fileIo.File | undefined; let path: string = '';
       try { while (true) {
-        if (project !== this.selectedProjectId || mac !== this.fingerprint) { throw new Error('项目或 Mac 已切换'); }
+        if (project !== this.selectedProjectId || mac !== this.fingerprint) { throw new Error('项目或电脑已切换'); }
         const chunk = await this.rpc.request<ImageChunk>('GET', endpoint + '&offset=' + offset + (version ? '&version=' + version : ''), undefined, this.authorization());
-        if (project !== this.selectedProjectId || mac !== this.fingerprint) { throw new Error('项目或 Mac 已切换'); }
+        if (project !== this.selectedProjectId || mac !== this.fingerprint) { throw new Error('项目或电脑已切换'); }
         if (chunk.totalBytes > (icon ? 2097152 : 8388608) || (version && version !== chunk.version) || (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(chunk.mime) && !(icon && chunk.mime === 'image/svg+xml'))) { throw new Error('图片过大、格式不受支持或内容已变化'); }
         if (!file) { const ext: string = chunk.mime === 'image/jpeg' ? 'jpg' : chunk.mime === 'image/svg+xml' ? 'svg' : chunk.mime.slice(6); path = this.imageRoot + '/' + key + '.' + ext; file = fileIo.openSync(path, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC); }
         const bytes: ArrayBuffer = decode(chunk.data); let written: number = 0; while (written < bytes.byteLength) { const count: number = fileIo.writeSync(file.fd, bytes.slice(written)); if (count <= 0) { throw new Error('图片缓存写入失败'); } written += count; }
@@ -845,17 +878,18 @@ export class MobileSession extends UiState {
   }
   async saveProjectCreationPath(path: string): Promise<void> {
     const value: string = path.trim();
-    if (!value || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value) || !(value.startsWith('/') || value === '~' || value.startsWith('~/'))) { throw new Error('请输入 Mac 绝对路径或 ~/ 开头的路径'); }
-    if (!this.mac) { throw new Error('请先连接 Mac'); }
+    if (!value || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value) || !(value.startsWith('/') || value === '~' || value.startsWith('~/') || value.startsWith('~\\') || /^[A-Za-z]:[\\/]/.test(value) || /^\\\\[^\\/]+[\\/][^\\/]+/.test(value))) { throw new Error('请输入电脑上的绝对路径或 ~/ 开头的路径'); }
+    if (!this.mac) { throw new Error('请先连接电脑'); }
     const generation: number = this.generation;
     await this.identity.put('projectCreationPath.' + this.mac.gatewayId, value); this.checkGeneration(generation);
     this.projectCreationPath = value;
   }
   async createProject(name: string): Promise<void> {
-    if (this.busy || !this.authenticated) { throw new Error('请先连接 Mac，等待当前操作完成'); }
-    if (this.newProjectCapability !== 'control') { throw new Error('请先在 Mac 将此设备的新项目权限设为自动可执行'); }
+    if (this.busy || !this.authenticated) { throw new Error('请先连接电脑，等待当前操作完成'); }
+    if (this.newProjectCapability !== 'control') { throw new Error('请先在电脑将此设备的新' + this.containerName + '权限设为自动可执行'); }
     const title: string = name.trim();
-    if (!title || title === '.' || title === '..' || /[\\/\x00-\x1f\x7f]/.test(title)) { throw new Error('请输入有效项目名称，不能包含路径分隔符'); }
+    if (!title || title === '.' || title === '..' || /[\\/\x00-\x1f\x7f]/.test(title)) { throw new Error('请输入有效' + this.containerName + '名称，不能包含路径分隔符'); }
+    let createdName: string = title; let createdProjectId: string = '';
     this.busy = true;
     try {
       const generation: number = this.generation;
@@ -867,9 +901,12 @@ export class MobileSession extends UiState {
       const body: CreateProjectBody = { name: title, requestId: requestId, parentPath: parentPath };
       const project = await this.rpc.request<ProjectItem>('POST', '/v1/projects', body, this.authorization()); this.checkGeneration(generation);
       this.projects = [...this.projects.filter((p: ProjectItem) => p.id !== project.id), project];
-      this.selectedProjectId = project.id;
+      createdProjectId = project.id; createdName = project.name || title;
     } finally { this.busy = false; }
+    await this.selectProject(createdProjectId);
     await this.refreshNavigation();
+    const workspace: NavigationProject | undefined = this.navigation?.projects.find((p: NavigationProject) => !!p.workspaceId && p.name === createdName) || this.navigation?.projects.find((p: NavigationProject) => !!p.workspaceId && p.id === createdProjectId);
+    if (workspace && workspace.id !== this.selectedProjectId) { await this.selectProject(workspace.id); }
     await this.createThread();
   }
   private async createWorkspaceThread(section: NavigationSection): Promise<void> {

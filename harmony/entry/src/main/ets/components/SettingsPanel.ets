@@ -31,9 +31,9 @@ export struct SettingsPanel {
     Column({ space: 16 }) {
       SheetHeader({ title: this.infoTitle || '提示', onClose: () => { this.info = ''; } })
       Scroll() {
-        if (this.infoTitle === '默认项目创建路径') {
+        if (this.infoTitle === '默认项目目录') {
           Column({ space: 12 }) {
-            Text('填写 Mac 上的父目录，新项目将创建在此目录下。支持绝对路径和 ~/，按所连接的 Mac 分别保存。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
+            Text('填写电脑上的父目录，供支持新建项目的智能体使用。Windows 支持 C:\\workspace 或 C:/workspace，也支持 ~/workspace。按所连接的电脑分别保存。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
             TextInput({ text: this.projectPath, placeholder: '~/workspace' }).id('project-creation-path-input').height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).maxLength(4096).onChange((value: string) => { this.projectPath = value; })
             if (this.pathError) { Text(this.pathError).fontSize(12).fontColor(AppTheme.error).width('100%') }
           }.width('100%')
@@ -50,7 +50,7 @@ export struct SettingsPanel {
         } else { Text(this.info).fontSize(14).lineHeight(24).fontColor(AppTheme.text).width('100%').copyOption(CopyOptions.LocalDevice) }
       }.id('settings-info-content').width('100%').constraintSize({ maxHeight: 360 }).align(Alignment.TopStart).scrollBar(BarState.Auto)
       if (this.infoTitle === '连接信息' && this.client.authenticated) { Button('断开连接').id('disconnect-from-info').height(44).width('100%').fontColor(AppTheme.error).backgroundColor(AppTheme.subtle).borderRadius(14).onClick(() => { this.client.pauseConnection(); this.info = ''; this.onNavigate('connect'); }) }
-      Button(this.infoTitle === '默认项目创建路径' ? '保存路径' : '完成').id('settings-info-close').height(44).width('100%').fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).borderRadius(14).enabled(!this.savingPath).onClick(() => { if (this.infoTitle === '默认项目创建路径') { this.savePath(); } else { this.info = ''; } })
+      Button(this.infoTitle === '默认项目目录' ? '保存路径' : '完成').id('settings-info-close').height(44).width('100%').fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).borderRadius(14).enabled(!this.savingPath).onClick(() => { if (this.infoTitle === '默认项目目录') { this.savePath(); } else { this.info = ''; } })
     }.id('settings-info-sheet').padding({ left: 20, right: 20, top: 20, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
   }
   build() {
@@ -59,17 +59,15 @@ export struct SettingsPanel {
         Column({ space: 6 }) {
           Text('连接').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 12, bottom: 6 })
           Column() {
-            this.InfoRow({ icon: $r('sys.symbol.link'), title: 'Mac', value: this.client.authenticated ? '已连接' : '未连接', action: () => { this.onNavigate('connect'); } })
+            this.InfoRow({ icon: $r('sys.symbol.link'), title: '电脑', value: this.client.authenticated ? '已连接' : '未连接', action: () => { this.onNavigate('connect'); } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
-            this.InfoRow({ icon: $r('sys.symbol.info_circle'), title: 'Gateway 版本', value: this.client.gatewayVersion || '未确认', action: () => { this.info = '当前已核对版本：' + (this.client.gatewayVersion || '未确认') + '\n最低兼容版本：' + this.client.minimumGatewayVersion + '\n\n在 Mac 更新：\n' + GATEWAY_UPDATE_COMMAND + '\nyuanma-gateway restart\nyuanma-gateway pair'; } })
+            this.InfoRow({ icon: $r('sys.symbol.info_circle'), title: 'Gateway 版本', value: this.client.gatewayVersion || '未确认', action: () => { this.info = '当前已核对版本：' + (this.client.gatewayVersion || '未确认') + '\n最低兼容版本：' + this.client.minimumGatewayVersion + '\n\n在电脑更新：\n' + GATEWAY_UPDATE_COMMAND + '\nyuanma-gateway restart\nyuanma-gateway pair'; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
-            this.InfoRow({ icon: $r('sys.symbol.info_circle'), title: '连接信息', value: '', action: () => { this.info = this.client.fingerprint ? 'Mac 身份指纹\n' + this.client.fingerprint + '\n端到端加密连接，密钥证明后鉴权。' : '连接 Mac 后可查看设备身份。'; } })
+            this.InfoRow({ icon: $r('sys.symbol.info_circle'), title: '连接信息', value: '', action: () => { this.info = this.client.fingerprint ? '电脑身份指纹\n' + this.client.fingerprint + '\n端到端加密连接，密钥证明后鉴权。' : '连接电脑后可查看设备身份。'; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
             this.InfoRow({ icon: $r('sys.symbol.folder'), title: this.client.containerName + '访问权限', value: this.client.projects.length + ' 个' + this.client.containerName, action: () => { this.info = this.client.projects.length ? this.client.projects.length + ' 个已授权' + this.client.containerName : '暂无授权' + this.client.containerName; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
-            if (this.client.selectedAgent === 'codex') {
-            this.InfoRow({ icon: $r('sys.symbol.folder'), title: '默认项目创建路径', value: this.client.projectCreationPath, action: () => { this.projectPath = this.client.projectCreationPath; this.pathError = ''; this.info = 'path'; } })
-            }
+            this.InfoRow({ icon: $r('sys.symbol.folder'), title: '默认项目目录', value: this.client.projectCreationPath, action: () => { this.projectPath = this.client.projectCreationPath; this.pathError = ''; this.info = 'path'; } })
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
             Row() { Text('新' + this.client.containerName + '权限').fontSize(14).fontColor(AppTheme.text).layoutWeight(1); Text(this.client.newProjectCapability === 'control' ? '自动可执行' : this.client.newProjectCapability === 'read' ? '自动只读' : '逐项授权').id('new-project-policy').fontSize(12).fontColor(AppTheme.secondary) }.padding({ left: 16, right: 16 }).height(54).width('100%')
             Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 })
@@ -85,7 +83,7 @@ export struct SettingsPanel {
               if (this.client.extensionSyncing) { LoadingProgress().width(18).height(18).color(AppTheme.accent) } else { Text('同步').fontSize(12).fontColor(AppTheme.accent) }
             }.padding({ left: 16, right: 16 }).height(54).width('100%') }.id('sync-extensions').type(ButtonType.Normal).padding(0).height(54).width('100%').backgroundColor(Color.Transparent).enabled(this.client.capabilities.extensions && this.client.authenticated && !this.client.busy && !this.client.extensionSyncing && this.client.projects.length > 0)
               .onClick(() => { this.client.syncExtensions().catch((error: Error) => { this.infoTitle = '同步 Skills 与插件'; this.info = this.client.userFacingError(error) || '连接正在恢复，请恢复连接后重新同步'; }); })
-            Text(this.client.extensionSyncStatus || (this.client.authenticated ? (this.client.projects.length > 0 ? '读取当前智能体已启用的扩展，在输入框用 / 选择技能、@ 选择插件。Skill 随' + this.client.containerName + '和会话切换。' : '请先在 Mac 授权一个' + this.client.containerName + '，再同步扩展清单。') : '连接 Mac 后可同步当前电脑的扩展清单。')).id('extension-sync-status').fontSize(11).lineHeight(18).fontColor(AppTheme.secondary).width('100%').padding({ left: 16, right: 16, bottom: 12 })
+            Text(this.client.extensionSyncStatus || (this.client.authenticated ? (this.client.projects.length > 0 ? '读取当前智能体已启用的扩展，在输入框用 / 选择技能、@ 选择插件。Skill 随' + this.client.containerName + '和会话切换。' : '请先在电脑授权一个' + this.client.containerName + '，再同步扩展清单。') : '连接电脑后可同步当前电脑的扩展清单。')).id('extension-sync-status').fontSize(11).lineHeight(18).fontColor(AppTheme.secondary).width('100%').padding({ left: 16, right: 16, bottom: 12 })
           }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
         }.width('100%')
         Column({ space: 6 }) {
@@ -106,7 +104,7 @@ export struct SettingsPanel {
         }.width('100%')
         Column({ space: 6 }) {
           Text('关于').fontSize(12).fontColor(AppTheme.secondary).width('100%').padding({ left: 12, bottom: 6 })
-          Column() { this.InfoRow({ icon: $r('sys.symbol.doc_text'), title: '网关搭建说明', value: '', action: () => { this.onNavigate('gateway-guide'); } }); Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 }); this.InfoRow({ icon: $r('sys.symbol.lock'), title: '设备与隐私', value: '', action: () => { this.info = '设备签名使用 HUKS；配对身份由 Mac 固定公钥验证。草稿仅保存在本机；秘密回答不写入草稿。'; } }); this.InfoRow({ icon: $r('sys.symbol.doc_text'), title: '版本信息', value: '开发构建', action: () => { this.info = '远码 · HarmonyOS 原生客户端'; } }) }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
+          Column() { this.InfoRow({ icon: $r('sys.symbol.doc_text'), title: '网关搭建说明', value: '', action: () => { this.onNavigate('gateway-guide'); } }); Divider().color(AppTheme.subtle).margin({ left: 16, right: 16 }); this.InfoRow({ icon: $r('sys.symbol.lock'), title: '设备与隐私', value: '', action: () => { this.info = '设备签名使用 HUKS；配对身份由电脑固定公钥验证。草稿仅保存在本机；秘密回答不写入草稿。'; } }); this.InfoRow({ icon: $r('sys.symbol.doc_text'), title: '版本信息', value: '开发构建', action: () => { this.info = '远码 · HarmonyOS 原生客户端'; } }) }.width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(18)
         }.width('100%')
         Button() { Row({ space: 12 }) { SymbolGlyph($r('sys.symbol.power')).fontSize(20).fontColor([AppTheme.error]); Text('断开连接').fontSize(14).fontColor(AppTheme.error).layoutWeight(1) }.padding(16).width('100%') }.type(ButtonType.Normal).height(54).width('100%').backgroundColor(AppTheme.subtle).borderRadius(18).onClick(() => { this.client.pauseConnection(); this.onNavigate('connect'); })
       }.padding({ top: 20, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)

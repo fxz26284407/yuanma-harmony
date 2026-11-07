@@ -17,7 +17,7 @@ export class RemoteError extends Error {
 }
 export function relayEndpoint(value?: string): string {
   let message: string = '二维码中的连接地址无效，请重新生成配对码';
-  if (!value) { message = '缺少连接地址，请扫描 Mac 的新二维码更新连接'; }
+  if (!value) { message = '缺少连接地址，请扫描电脑的新二维码更新连接'; }
   else {
     try {
       if (typeof value !== 'string' || value.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(value)) { throw new Error('Invalid address'); }
@@ -63,7 +63,7 @@ export class SecureRpc {
   async connect(key: TransportIdentity, macPublic: string, macId: string, relayUrl?: string, mode: string = 'relay'): Promise<void> {
     const endpoint: string = connectionEndpoint(relayUrl, mode);
     this.close(); const pin = decode(macPublic);
-    if (pin.byteLength !== 32 || hex(native.sha256(pin)) !== macId) { throw new Error('Mac 身份与固定公钥不匹配'); }
+    if (pin.byteLength !== 32 || hex(native.sha256(pin)) !== macId) { throw new Error('电脑身份与固定公钥不匹配'); }
     try { this.handle = native.create(key.privateKey, pin); } finally { new Uint8Array(key.privateKey).fill(0); }
     this.stage = 'link'; const epoch: number = this.epoch; const socket = webSocket.createWebSocket(); this.socket = socket;
     const ready = new Promise<void>((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject; });

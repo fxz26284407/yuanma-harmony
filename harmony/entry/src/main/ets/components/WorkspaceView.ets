@@ -35,9 +35,12 @@ export struct WorkspaceView {
   @State private showProjects: boolean = false;
   @State private workTab: number = 0;
   @State private material: string = '';
+  @State private showComputerSwitch: boolean = false;
+  private pendingPairMaterial: string = '';
   @State private showPairMaterial: boolean = false;
   @State private showConnectionInfo: boolean = false;
   @State private errorText: string = '';
+  @State private syncErrorText: string = '';
   @State private showRequest: boolean = false;
   @State private activeRequestId: string = '';
   @State private scanning: boolean = false;
@@ -99,11 +102,11 @@ export struct WorkspaceView {
     } catch (_) { console.warn('折叠监听不可用，使用窗口尺寸布局'); }
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    this.client.initialize(context).then(async () => { if (this.client.reconnectEnabled && this.client.hasKnownMac && !this.client.authenticated && !this.client.busy) { await this.client.reconnect(); } if (this.client.authenticated) { await this.client.refreshNavigation(); this.page = 'chat'; if (!this.client.selectedProjectId) { this.showProjects = true; } } }).catch((error: Error) => { this.errorText = this.safeError(error); });
+    this.client.initialize(context).then(async () => { if (this.client.reconnectEnabled && this.client.hasKnownMac && !this.client.authenticated && !this.client.busy) { await this.client.reconnect(); } if (this.client.authenticated) { await this.client.refreshNavigation(); if (!this.scanning && !this.showComputerSwitch && !this.showPairMaterial) { this.page = 'chat'; if (!this.client.selectedProjectId) { this.showProjects = true; } } } }).catch((error: Error) => { this.errorText = this.safeError(error); });
     this.refreshTimer = setInterval(() => {
-      if (this.client.authenticated && this.client.connectionVersion !== this.connectionVersion) { this.connectionVersion = this.client.connectionVersion; this.errorText = ''; if (this.page === 'connect') { this.page = 'chat'; this.showProjects = !this.client.selectedProjectId; } }
+      if (this.client.authenticated && this.client.connectionVersion !== this.connectionVersion) { this.connectionVersion = this.client.connectionVersion; this.errorText = ''; this.syncErrorText = ''; if (this.page === 'connect' && !this.scanning && !this.showComputerSwitch && !this.showPairMaterial) { this.page = 'chat'; this.showProjects = !this.client.selectedProjectId; } }
       const cadence: number = this.client.selectedAgent === 'antigravity' && this.client.currentTurnId && !this.client.waiting ? 300 : 2000;
-      if (this.page === 'chat' && this.client.authenticated && !this.client.busy && Date.now() - this.refreshedAt >= cadence) { this.refreshedAt = Date.now(); this.client.refresh().catch((error: Error) => { this.errorText = this.safeError(error); }); }
+      if (this.page === 'chat' && this.client.authenticated && !this.client.busy && Date.now() - this.refreshedAt >= cadence) { this.refreshedAt = Date.now(); this.client.refresh().then(() => { this.syncErrorText = ''; }).catch((error: Error) => { this.syncErrorText = this.safeError(error); }); }
     }, 300);
   }
   aboutToDisappear(): void {
@@ -113,8 +116,8 @@ export struct WorkspaceView {
   }
   private safeError(error: Error): string {
     if (!this.client.userFacingError(error)) { return ''; }
-    if (error.message.includes('UNSAFE_THREAD')) { return '该会话权限过宽，Mac 网关当前拒绝控制。请选择受限会话。'; }
-    if (error.message.includes('AUTH_')) { return '设备鉴权已失效，请重新连接或在 Mac 检查授权。'; }
+    if (error.message.includes('UNSAFE_THREAD')) { return '该会话权限过宽，电脑网关当前拒绝控制。请选择受限会话。'; }
+    if (error.message.includes('AUTH_')) { return '设备鉴权已失效，请重新连接或在电脑检查授权。'; }
     return error.message.slice(0, 220);
   }
   private setSidebar(show: boolean): void { this.getUIContext().animateTo({ duration: this.client.reduceMotion ? 0 : 220, curve: Curve.EaseOut }, () => { this.sidebarOpen = show; }); }
@@ -126,18 +129,25 @@ export struct WorkspaceView {
   }
   private navigateFromSidebar(page: string): void { if (!this.wideScreen) { this.setSidebar(false); } this.changePage(page); }
   private changePage(page: string): void {
+    if (page !== 'connect') { this.showComputerSwitch = false; this.pendingPairMaterial = ''; }
     if (page === 'gateway-guide') { this.gatewayGuideReturn = this.page; }
     if (page === 'new-conversation') { this.workTab = 0; this.showProjects = true; return; }
     this.getUIContext().animateTo({ duration: this.client.reduceMotion ? 0 : 160, curve: Curve.EaseOut }, () => { this.page = page; });
   }
   private openChanges(turnId: string): void { this.client.openChanges(turnId).then(() => { this.changePage('diff'); }).catch((e: Error) => { this.errorText = this.safeError(e); }); }
-  private async pair(): Promise<void> {
-    this.errorText = ''; const value: string = this.material; this.material = '';
-    try { await this.client.pair(value); this.changePage('chat'); this.showProjects = !this.client.selectedProjectId; }
-    catch (error) { this.errorText = this.safeError(error as Error); }
+  private async pair(switchComputer: boolean = false): Promise<void> {
+    this.errorText = ''; const value: string = switchComputer ? this.pendingPairMaterial : this.material;
+    this.material = ''; this.pendingPairMaterial = ''; this.showComputerSwitch = false;
+    try { await this.client.pair(value, switchComputer); this.changePage('chat'); this.showProjects = !this.client.selectedProjectId; }
+    catch (error) {
+      const failed = error as Error;
+      if (failed.name === 'ComputerChangeRequiredError') { this.pendingPairMaterial = value; this.showComputerSwitch = true; }
+      else { this.errorText = this.safeError(failed); }
+    }
   }
   private async scan(): Promise<void> {
-    if (this.scanning || this.client.busy) { return; } this.scanning = true; this.errorText = '';
+    if (this.scanning || (this.client.busy && !this.client.recovering)) { return; } this.scanning = true; this.errorText = '';
+    this.pendingPairMaterial = ''; this.showComputerSwitch = false;
     const resumeConnection: boolean = this.client.reconnectEnabled;
     if (this.client.hasKnownMac) { this.client.pauseConnection(); }
     try {
@@ -176,12 +186,12 @@ export struct WorkspaceView {
         .id(this.showsBackButton() ? 'back-button' : 'navigation-toggle').width(44).height(44).backgroundColor(Color.Transparent).accessibilityText(this.showsBackButton() ? (this.page === 'gateway-guide' ? '返回上一页' : '返回会话') : this.sidebarOpen ? '收起侧栏' : '展开侧栏')
         .onClick(() => { if (this.showsBackButton()) { this.changePage(this.page === 'gateway-guide' ? this.gatewayGuideReturn : 'chat'); } else { this.sidebarChoice = !this.sidebarOpen; this.setSidebar(this.sidebarChoice); if (this.sidebarOpen) { this.client.refreshNavigation().catch((e: Error) => { this.errorText = this.safeError(e); }); } } })
       Column({ space: 3 }) {
-        Row({ space: 6 }) { Text(this.page === 'gateway-guide' ? '网关搭建说明' : this.page === 'settings' ? '设置' : this.page === 'connect' ? '连接 Mac' : this.page === 'diff' ? '代码变更' : this.page === 'image' ? (this.client.imageLabel || '图片') : this.page === 'message' ? '完整内容' : this.page === 'chat' ? (this.client.activeContainerName || (this.client.canCreateThread ? '新任务' : '选择会话')) : '远码').fontSize(17).fontWeight(FontWeight.Medium).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); if (this.page === 'chat' && this.client.authenticated) { SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(10).fontColor([AppTheme.secondary]) } }
+        Row({ space: 6 }) { Text(this.page === 'gateway-guide' ? '网关搭建说明' : this.page === 'settings' ? '设置' : this.page === 'connect' ? '连接电脑' : this.page === 'diff' ? '代码变更' : this.page === 'image' ? (this.client.imageLabel || '图片') : this.page === 'message' ? '完整内容' : this.page === 'chat' ? (this.client.activeContainerName || (this.client.canCreateThread ? '新任务' : '选择会话')) : '远码').fontSize(17).fontWeight(FontWeight.Medium).fontColor(AppTheme.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }); if (this.page === 'chat' && this.client.authenticated) { SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(10).fontColor([AppTheme.secondary]) } }
 
-        if (this.page === 'chat' || this.page === 'projects' || this.page === 'threads') { Text(this.client.selectedThreadName || (this.client.authenticated ? '已连接 Mac' : this.client.status)).fontSize(11).fontColor(AppTheme.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }) }
+        if (this.page === 'chat' || this.page === 'projects' || this.page === 'threads') { Text(this.client.selectedThreadName || (this.client.authenticated ? '已连接电脑' : this.client.status)).fontSize(11).fontColor(AppTheme.secondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }) }
       }.layoutWeight(1).alignItems(HorizontalAlign.Center).constraintSize({ minHeight: 44 }).id('project-selector').accessibilityText('选择' + this.client.containerName + '或最近会话').onClick(() => { if (this.page === 'chat' && this.client.authenticated) { this.showProjects = true; this.client.refreshNavigation().catch((e: Error) => { this.errorText = this.safeError(e); }); } })
       AgentSwitcher({ client: this.client,
-        onChanging: () => { this.sidebarOpen = false; this.threadSearch = ''; this.workTab = 0; this.activeRequestId = ''; this.quickContextId = ''; this.showThreadRename = false; this.renameThread = undefined; this.showConnectionInfo = false; this.showProjects = false; this.showPermissions = false; this.showRequest = false; this.material = ''; this.showPairMaterial = false; this.errorText = ''; this.changePage('connect'); },
+        onChanging: () => { this.sidebarOpen = false; this.threadSearch = ''; this.workTab = 0; this.activeRequestId = ''; this.quickContextId = ''; this.showThreadRename = false; this.renameThread = undefined; this.showConnectionInfo = false; this.showProjects = false; this.showPermissions = false; this.showRequest = false; this.material = ''; this.pendingPairMaterial = ''; this.showComputerSwitch = false; this.showPairMaterial = false; this.errorText = ''; this.syncErrorText = ''; this.changePage('connect'); },
         onChanged: () => { this.changePage(this.client.authenticated ? 'chat' : 'connect'); if (this.client.authenticated && !this.client.selectedProjectId) { this.showProjects = true; } },
         onError: (error: Error) => { this.errorText = this.safeError(error); }
       })
@@ -195,18 +205,18 @@ export struct WorkspaceView {
       Column({ space: 24 }) {
         Column({ space: 14 }) {
           SymbolGlyph(this.client.authenticated ? $r('sys.symbol.checkmark_shield') : this.client.hasKnownMac ? $r('sys.symbol.link') : $r('sys.symbol.qrcode')).fontSize(58).fontColor([AppTheme.accent]).margin({ bottom: 8 })
-          Text(this.client.authenticated ? 'Mac 已连接' : this.client.hasKnownMac ? (this.client.recovering ? '正在恢复连接' : this.client.recoveryIssue ? this.client.status : '连接已暂停') : '连接一次，随时接续').fontSize(23).fontWeight(FontWeight.Medium).fontColor(AppTheme.text)
-          Text(this.client.authenticated ? '可以从侧栏选择项目和会话，继续你的工作。' : this.client.hasKnownMac ? (this.client.recoveryIssue || '已保存 Mac 身份，网络恢复后自动连接，无需重新扫码。') : '在 Mac 上生成配对码，扫描一次即可切换两种智能体。').fontSize(14).lineHeight(24).fontColor(AppTheme.secondary).textAlign(TextAlign.Center)
+          Text(this.client.authenticated ? '电脑已连接' : this.client.hasKnownMac ? (this.client.recovering ? '正在恢复连接' : this.client.recoveryIssue ? this.client.status : '连接已暂停') : '连接一次，随时接续').fontSize(23).fontWeight(FontWeight.Medium).fontColor(AppTheme.text)
+          Text(this.client.authenticated ? '可以从侧栏选择项目和会话，继续你的工作。' : this.client.hasKnownMac ? (this.client.recoveryIssue || '已保存电脑身份，网络恢复后自动连接，无需重新扫码。') : '在电脑上生成配对码，扫描一次即可切换已接入的智能体。').fontSize(14).lineHeight(24).fontColor(AppTheme.secondary).textAlign(TextAlign.Center)
         }.width('100%').padding({ top: 32, bottom: 12 })
         Column({ space: 6 }) {
-          if (!this.client.authenticated) { Text('首次使用，请先在 Mac 安装网关；同一局域网无需部署中继。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%') }
+          if (!this.client.authenticated) { Text('首次使用，请先在电脑安装网关；同一局域网无需部署中继。').fontSize(12).lineHeight(20).fontColor(AppTheme.secondary).width('100%') }
           Row() {
             Button('网关搭建说明').id('gateway-guide-connect').fontSize(14).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).height(44).onClick(() => { this.changePage('gateway-guide'); })
           }.width('100%').padding({ left: 16, right: 16 }).justifyContent(FlexAlign.Center).backgroundColor(AppTheme.subtle).borderRadius(14)
         }.width('100%')
         if (this.client.authenticated) {
           Column({ space: 12 }) {
-            Row({ space: 10 }) { SymbolGlyph($r('sys.symbol.link')).fontSize(22).fontColor([AppTheme.text]); Text('Mac').fontSize(17).fontColor(AppTheme.text).layoutWeight(1); Text('端到端加密').fontSize(12).fontColor(AppTheme.accent) }.height(44).width('100%')
+            Row({ space: 10 }) { SymbolGlyph($r('sys.symbol.link')).fontSize(22).fontColor([AppTheme.text]); Text('电脑').fontSize(17).fontColor(AppTheme.text).layoutWeight(1); Text('端到端加密').fontSize(12).fontColor(AppTheme.accent) }.height(44).width('100%')
             Text(this.client.projects.length + ' 个授权' + this.client.containerName).fontSize(13).fontColor(AppTheme.secondary).width('100%')
             Button('断开连接').id('disconnect-mac').width('100%').height(44).fontColor(AppTheme.error).backgroundColor(Color.Transparent).onClick(() => { this.client.pauseConnection(); })
             Button('返回工作').width('100%').height(48).fontColor(AppTheme.primaryText).backgroundColor(AppTheme.primary).borderRadius(16).onClick(() => { this.changePage(this.client.selectedProjectId ? 'chat' : 'projects'); })
@@ -215,7 +225,7 @@ export struct WorkspaceView {
           Column({ space: 14 }) {
             if (this.client.recovering) { LoadingProgress().width(28).height(28).color(AppTheme.accent) }
             Text(this.client.recoveryIssue || (this.client.recovering ? '正在重新建立安全连接并同步会话，草稿不会丢失。' : '点按恢复连接，接着处理原来的任务。')).fontSize(14).lineHeight(23).fontColor(AppTheme.secondary).width('100%')
-            Button('重新连接已配对的 Mac').id('reconnect-mac').height(48).width('100%').backgroundColor(AppTheme.surface).fontColor(AppTheme.text).enabled(!this.client.busy).onClick(() => { this.client.reconnect().then(() => { this.errorText = ''; this.changePage('chat'); }).catch((e: Error) => { this.errorText = this.safeError(e); }); })
+            Button('重新连接已配对的电脑').id('reconnect-mac').height(48).width('100%').backgroundColor(AppTheme.surface).fontColor(AppTheme.text).enabled(!this.client.busy).onClick(() => { this.client.reconnect().then(() => { this.errorText = ''; this.changePage('chat'); }).catch((e: Error) => { this.errorText = this.safeError(e); }); })
           }.padding(20).width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(20)
         } else {
           Column({ space: 16 }) {
@@ -223,22 +233,31 @@ export struct WorkspaceView {
             Text('yuanma-gateway pair').fontFamily('monospace').fontSize(14).fontColor(AppTheme.link).copyOption(CopyOptions.LocalDevice).padding(14).width('100%').backgroundColor(AppTheme.contentSurface).borderRadius(12)
             Divider().color(AppTheme.contentSurface)
             Text('扫描配对二维码').fontSize(14).fontWeight(FontWeight.Medium).fontColor(AppTheme.text).width('100%')
-            Button('扫码连接 Mac').width('100%').height(50).fontColor(AppTheme.primaryText).backgroundColor(AppTheme.primary).borderRadius(16).enabled(this.client.initialized && !this.client.busy).onClick(() => { this.scan(); })
           }.padding(20).width('100%').backgroundColor(AppTheme.subtle).border({ width: 0.6, color: AppTheme.border }).borderRadius(20)
-          if (this.client.hasKnownMac) { Button('重新连接已配对的 Mac').height(48).width('100%').backgroundColor(AppTheme.contentSurface).fontColor(AppTheme.text).onClick(() => { this.client.reconnect().then(() => { this.changePage('chat'); }).catch((e: Error) => { this.errorText = this.safeError(e); }); }) }
+          if (this.client.hasKnownMac) { Button('重新连接已配对的电脑').height(48).width('100%').backgroundColor(AppTheme.contentSurface).fontColor(AppTheme.text).onClick(() => { this.client.reconnect().then(() => { this.changePage('chat'); }).catch((e: Error) => { this.errorText = this.safeError(e); }); }) }
           Text('端到端加密 · 扫码后自动完成设备配对').fontSize(12).fontColor(AppTheme.secondary).textAlign(TextAlign.Center).width('100%')
         }
-        if (this.client.hasKnownMac) { Button('扫码更新连接地址').id('update-relay-address').height(44).width('100%').fontSize(14).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).enabled(this.client.initialized && !this.client.busy && !this.scanning).onClick(() => { this.scan(); }) }
+        Button('扫码连接电脑').id('scan-connect-computer').width('100%').height(48).fontSize(14).fontColor(AppTheme.primaryText).backgroundColor(AppTheme.primary).borderRadius(16).enabled(this.client.initialized && (!this.client.busy || this.client.recovering) && !this.scanning).onClick(() => { this.scan(); })
+        if (this.showComputerSwitch) {
+          Column({ space: 8 }) {
+            Text('切换到这台电脑？').fontSize(15).fontWeight(FontWeight.Medium).fontColor(AppTheme.text).width('100%')
+            Text('扫描到另一台电脑。原电脑的配对、草稿和待确认消息会保留，切回时重新扫码即可。').fontSize(13).lineHeight(20).fontColor(AppTheme.secondary).width('100%')
+            Row({ space: 12 }) {
+              Button('取消').id('cancel-switch-computer').height(44).fontColor(AppTheme.secondary).backgroundColor(Color.Transparent).onClick(() => { this.showComputerSwitch = false; this.pendingPairMaterial = ''; })
+              Button('确认切换').id('confirm-switch-computer').height(44).fontColor(AppTheme.primaryText).backgroundColor(AppTheme.primary).enabled(this.client.initialized && (!this.client.busy || this.client.recovering)).onClick(() => { this.pair(true); })
+            }.width('100%').justifyContent(FlexAlign.End)
+          }.padding(16).width('100%').backgroundColor(AppTheme.subtle).borderRadius(14)
+        }
         Button(this.showPairMaterial ? '收起配对材料输入' : '使用配对材料').id('pair-material-toggle').height(44).fontSize(14).fontColor(AppTheme.secondary).backgroundColor(Color.Transparent).onClick(() => { this.showPairMaterial = !this.showPairMaterial; })
         if (this.showPairMaterial) {
           Column({ space: 12 }) {
             TextInput({ placeholder: '粘贴短时配对材料', text: this.material }).id('pair-material-input').type(InputType.Password).height(48).fontSize(14).fontColor(AppTheme.text).backgroundColor(AppTheme.contentSurface).borderRadius(14).maxLength(8192).onChange((v: string) => { this.material = v; })
-            Button('确认身份并连接').id('pair-material-connect').width('100%').height(48).enabled(this.client.initialized && !this.client.busy && this.material.trim().length > 0).backgroundColor(AppTheme.primary).fontColor(AppTheme.primaryText).onClick(() => { this.pair(); })
+            Button('确认身份并连接').id('pair-material-connect').width('100%').height(48).enabled(this.client.initialized && (!this.client.busy || this.client.recovering) && this.material.trim().length > 0).backgroundColor(AppTheme.primary).fontColor(AppTheme.primaryText).onClick(() => { this.pair(); })
           }.width('100%')
         }
         if (this.client.busy) { LoadingProgress().width(28).height(28).color(AppTheme.accent); Text(this.client.detail).fontSize(13).fontColor(AppTheme.secondary).width('100%') }
         Button(this.showConnectionInfo ? '收起连接信息' : '查看连接信息').height(44).fontSize(13).fontColor(AppTheme.secondary).backgroundColor(Color.Transparent).onClick(() => { this.showConnectionInfo = !this.showConnectionInfo; })
-        if (this.showConnectionInfo) { Column({ space: 8 }) { Text('Mac 身份指纹').fontSize(12).fontColor(AppTheme.secondary); Text(this.client.fingerprint || '尚未固定身份').fontSize(12).fontFamily('monospace').fontColor(AppTheme.text).copyOption(CopyOptions.LocalDevice); Text(this.client.detail).fontSize(12).lineHeight(20).fontColor(AppTheme.secondary) }.padding(16).width('100%').backgroundColor(AppTheme.surface).borderRadius(14).alignItems(HorizontalAlign.Start) }
+        if (this.showConnectionInfo) { Column({ space: 8 }) { Text('电脑身份指纹').fontSize(12).fontColor(AppTheme.secondary); Text(this.client.fingerprint || '尚未固定身份').fontSize(12).fontFamily('monospace').fontColor(AppTheme.text).copyOption(CopyOptions.LocalDevice); Text(this.client.detail).fontSize(12).lineHeight(20).fontColor(AppTheme.secondary) }.padding(16).width('100%').backgroundColor(AppTheme.surface).borderRadius(14).alignItems(HorizontalAlign.Start) }
       }.padding({ top: 8, bottom: 24 }).width('100%')
     }.layoutWeight(1).width('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
   }
@@ -263,7 +282,7 @@ export struct WorkspaceView {
           }
           }.width('100%').backgroundColor(this.client.selectedProjectId === project.id ? AppTheme.selected : Color.Transparent).borderRadius(12)
         }, (project: ProjectItem) => JSON.stringify([project.id, project.name, project.capability]))
-        if (!this.client.projects.length) { Text(this.client.authenticated ? 'Mac 尚未授权项目' : '连接 Mac 后选择项目').fontSize(14).fontColor(AppTheme.secondary).padding(24) }
+        if (!this.client.projects.length) { Text(this.client.authenticated ? '电脑尚未授权项目' : '连接电脑后选择项目').fontSize(14).fontColor(AppTheme.secondary).padding(24) }
       }.width('100%')
     }.width('100%').constraintSize({ maxHeight: 420 }).scrollBar(BarState.Off).align(Alignment.TopStart)
   }
@@ -329,7 +348,7 @@ export struct WorkspaceView {
     Scroll() {
       Column({ space: 2 }) {
         ForEach(this.client.navigation?.recentThreads || [], (thread: NavigationThread) => { this.PickerThread(thread) }, (thread: NavigationThread) => JSON.stringify(thread))
-        if (!(this.client.navigation?.recentThreads || []).length) { Text(this.client.busy ? '正在同步最近会话…' : this.client.authenticated ? '暂无可访问的最近会话' : '连接 Mac 后查看最近会话').fontSize(13).fontColor(AppTheme.secondary).padding(24).width('100%').textAlign(TextAlign.Center) }
+        if (!(this.client.navigation?.recentThreads || []).length) { Text(this.client.busy ? '正在同步最近会话…' : this.client.authenticated ? '暂无可访问的最近会话' : '连接电脑后查看最近会话').fontSize(13).fontColor(AppTheme.secondary).padding(24).width('100%').textAlign(TextAlign.Center) }
       }.width('100%')
     }.id('recent-threads-list').width('100%').height('100%').scrollBar(BarState.Off).align(Alignment.TopStart)
   }
@@ -343,7 +362,7 @@ export struct WorkspaceView {
               if (section.workspaceId && this.client.canCreateThread) { Button() { SymbolGlyph($r('sys.symbol.plus')).fontSize(18).fontColor([AppTheme.accent]) }.id('new-workspace-thread-' + section.id).width(44).height(44).padding(0).backgroundColor(Color.Transparent).accessibilityText('在' + section.name + '新建会话').enabled(this.client.authenticated && !this.client.busy).onClick(() => { this.createInWorkspace(section); }) }
             }.height(44).padding({ left: 12, right: 12 }).width('100%')
             ForEach(section.threads || [], (thread: NavigationThread) => { this.PickerThread(thread) }, (thread: NavigationThread) => JSON.stringify(thread))
-            if (!(section.threads || []).length) { Text(section.capability === 'none' ? '在 Mac 上授权后查看会话' : '暂无会话').fontSize(12).fontColor(AppTheme.secondary).padding({ left: 12, top: 8, bottom: 8 }).width('100%') }
+            if (!(section.threads || []).length) { Text(section.capability === 'none' ? '在电脑上授权后查看会话' : '暂无会话').fontSize(12).fontColor(AppTheme.secondary).padding({ left: 12, top: 8, bottom: 8 }).width('100%') }
           }.width('100%')
         }, (section: NavigationSection) => section.id + JSON.stringify(section.threads))
       }.width('100%')
@@ -388,12 +407,12 @@ export struct WorkspaceView {
   @Builder
   private Chat() {
     Column({ space: 12 }) {
-      if (!this.client.authenticated) { Row({ space: 8 }) { SymbolGlyph($r('sys.symbol.wifi_slash')).fontSize(16).fontColor([AppTheme.secondary]); Text(this.client.recovering ? '正在恢复连接 · 草稿已保留' : '离线 · 草稿保留在本机').fontSize(12).fontColor(AppTheme.secondary).layoutWeight(1); Button('连接 Mac').height(44).fontSize(13).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).onClick(() => { this.changePage('connect'); }) }.width('100%') }
+      if (!this.client.authenticated) { Row({ space: 8 }) { SymbolGlyph($r('sys.symbol.wifi_slash')).fontSize(16).fontColor([AppTheme.secondary]); Text(this.client.recovering ? '正在恢复连接 · 草稿已保留' : '离线 · 草稿保留在本机').fontSize(12).fontColor(AppTheme.secondary).layoutWeight(1); Button('连接电脑').height(44).fontSize(13).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).onClick(() => { this.changePage('connect'); }) }.width('100%') }
       if (this.client.approvals.length > 0) { Button('等待你处理 · ' + this.client.approvals.length + ' 项').height(44).width('100%').fontSize(13).fontColor(AppTheme.text).backgroundColor(AppTheme.subtle).borderRadius(12).onClick(() => { this.activeRequestId = this.client.approvals[0].id; this.showRequest = true; }) }
       if (this.client.selectedThreadId && !this.client.runtimeStatusKnown) { Text(this.client.canControlProject ? '桌面实时执行状态未确认' : '仅查看历史 · 实时执行状态未确认').fontSize(12).fontColor(AppTheme.secondary).width('100%') }
       Scroll(this.chatScroll) {
         Column({ space: 10 }) {
-          if (this.client.messages.length === 0) { Column({ space: 12 }) { Text(this.client.projects.some((p: ProjectItem) => p.id === this.client.selectedProjectId && p.capability === 'read') ? '查看' + this.client.containerName + '会话' : this.client.requiresWorkspaceThread ? '选择工作区新建会话' : this.client.canCreateThread ? '开始一项任务' : '选择已有会话').fontSize(28).fontWeight(FontWeight.Medium).fontColor(AppTheme.text); Text(this.client.projects.some((p: ProjectItem) => p.id === this.client.selectedProjectId && p.capability === 'read') ? '此' + this.client.containerName + '只读，可从侧栏选择已有会话。' : this.client.requiresWorkspaceThread ? '点击侧栏“新对话”，或工作区右侧的＋新建会话。' : this.client.canCreateThread ? '描述目标、提供上下文，' + this.client.agentName + ' 会在 Mac 上执行。' : '从侧栏选择 ' + this.client.agentName + ' 的' + this.client.containerName + '和会话，继续工作。').fontSize(14).lineHeight(25).fontColor(AppTheme.secondary) }.padding({ top: 56, bottom: 36 }).width('100%').alignItems(HorizontalAlign.Start) }
+          if (this.client.messages.length === 0) { Column({ space: 12 }) { Text(this.client.projects.some((p: ProjectItem) => p.id === this.client.selectedProjectId && p.capability === 'read') ? '查看' + this.client.containerName + '会话' : this.client.requiresWorkspaceThread ? '选择工作区新建会话' : this.client.canCreateThread ? '开始一项任务' : '选择已有会话').fontSize(28).fontWeight(FontWeight.Medium).fontColor(AppTheme.text); Text(this.client.projects.some((p: ProjectItem) => p.id === this.client.selectedProjectId && p.capability === 'read') ? '此' + this.client.containerName + '只读，可从侧栏选择已有会话。' : this.client.requiresWorkspaceThread ? '点击侧栏“新对话”，或工作区右侧的＋新建会话。' : this.client.canCreateThread ? '描述目标、提供上下文，' + this.client.agentName + ' 会在电脑上执行。' : '从侧栏选择 ' + this.client.agentName + ' 的' + this.client.containerName + '和会话，继续工作。').fontSize(14).lineHeight(25).fontColor(AppTheme.secondary) }.padding({ top: 56, bottom: 36 }).width('100%').alignItems(HorizontalAlign.Start) }
           if (this.client.historyCursor.length > 0) { Button('加载较早消息').id('older-messages').height(44).width('100%').fontColor(AppTheme.secondary).backgroundColor(Color.Transparent).enabled(!this.client.busy).onClick(() => { this.client.loadOlder().catch((e: Error) => { this.errorText = this.safeError(e); }); }) }
           TranscriptView({ client: this.client, onViewImage: (ref: ImageReference) => { this.changePage('image'); this.client.readImage(ref).catch((e: Error) => { this.errorText = this.safeError(e); }); }, messages: this.client.messages, reduceMotion: this.client.reduceMotion, threadId: this.client.selectedThreadId, onChanges: (turnId: string) => { this.openChanges(turnId); }, onChatChanged: () => { this.followLatest = true; this.scrollLatest(); }, onRead: (message: MessageView) => { this.client.readMessage(message).then(() => { this.changePage('message'); }).catch((e: Error) => { this.errorText = this.safeError(e); }); } })
           if (this.client.authenticated && this.client.selectedThreadId && this.client.activityTitle && !this.hasActiveExecution()) { ExecutionLabel({ label: this.client.activityTitle, running: true, reduceMotion: this.client.reduceMotion }).id('activity-title').width('100%').padding({ top: 4, bottom: 8 }) }
@@ -499,7 +518,7 @@ export struct WorkspaceView {
   private MainContent() {
     Column({ space: 10 }) {
       this.Header()
-      if (this.errorText.length > 0) { Row({ space: 8 }) { Text(this.errorText).fontSize(13).fontColor(AppTheme.error).lineHeight(21).layoutWeight(1); Button() { SymbolGlyph($r('sys.symbol.xmark')).fontSize(14).fontColor([AppTheme.error]) }.width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('关闭错误提示').onClick(() => { this.errorText = ''; }) }.id('error-banner').padding({ left: 14, right: 4 }).width('100%').backgroundColor(AppTheme.errorSurface).borderRadius(14) }
+      if (this.errorText.length > 0 || this.syncErrorText.length > 0) { Row({ space: 8 }) { Text(this.errorText || this.syncErrorText).fontSize(13).fontColor(AppTheme.error).lineHeight(21).layoutWeight(1); Button() { SymbolGlyph($r('sys.symbol.xmark')).fontSize(14).fontColor([AppTheme.error]) }.width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('关闭错误提示').onClick(() => { this.errorText = ''; this.syncErrorText = ''; }) }.id('error-banner').padding({ left: 14, right: 4 }).width('100%').backgroundColor(AppTheme.errorSurface).borderRadius(14) }
       if (this.page === 'connect') { this.Connect() }
       else if (this.page === 'gateway-guide') { GatewayGuide() }
       else if (this.page === 'projects') { this.Projects() }

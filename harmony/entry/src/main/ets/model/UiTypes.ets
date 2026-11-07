@@ -1,6 +1,7 @@
 import { AuthChallenge } from '../security/AuthTranscript';
 
 export interface PairMaterial { gatewayVersion?: string; profile: string; gatewayId: string; publicKey: string; pairingId: string; secret: string; expiresAt: number; relayUrl?: string; endpoint?: string; connectionMode?: string; }
+export interface CompactPairMaterial { v: number; k: string; s: string; i: string; t: number; u: string; g: string; m: string; }
 export interface PendingThreadCreation { projectId: string; workspaceId: string; requestId: string; }
 export interface AgentSelection { projectId: string; threadId: string; threadName: string; }
 export interface KnownMac { gatewayId: string; publicKey: string; relayUrl?: string; endpoint?: string; connectionMode?: string; }

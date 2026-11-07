@@ -36,7 +36,7 @@ export struct RuntimeControls {
         }
       }
       if (this.client.runtime.plan?.workflow) { Text('这是原生 /plan 请求；当前规划或实施阶段尚无可读取的状态。').fontSize(12).fontColor(AppTheme.secondary).width('100%') }
-      if (this.client.runtime.context) {
+      if (this.client.contextPercent >= 0) {
         Text((this.client.runtime.context!.estimated ? '上下文估算已用 ' : '上下文已用 ') + this.client.contextPercent + '% · ' + this.client.runtime.context!.used + ' / ' + this.client.runtime.context!.limit + ' tokens').fontSize(13).fontColor(AppTheme.text).width('100%')
         Text('更新于 ' + new Date(this.client.runtime.context!.updatedAt).toLocaleTimeString()).fontSize(11).fontColor(AppTheme.secondary).width('100%')
       } else { Text('上下文用量暂不可用，收到原生数据后更新。').fontSize(12).fontColor(AppTheme.secondary).width('100%') }
@@ -54,10 +54,11 @@ export struct RuntimeControls {
         }
       }.id('agent-runtime-status').type(ButtonType.Normal).width(36).height(44).padding(0).backgroundColor(Color.Transparent).accessibilityText(this.label() + '，查看模式与上下文').onClick(() => { this.open = true; })
       }
-      Button() {
-        if (this.client.contextPercent >= 0) { Progress({ value: this.client.contextPercent, total: 100, type: ProgressType.Ring }).width(18).height(18).color(AppTheme.secondary).backgroundColor(AppTheme.subtle).style({ strokeWidth: 2 }) }
-        else { Circle().width(16).height(16).fill(Color.Transparent).stroke(AppTheme.secondary).strokeWidth(1.5) }
-      }.id('context-usage').type(ButtonType.Normal).width(36).height(44).padding(0).backgroundColor(Color.Transparent).accessibilityText(this.client.contextPercent >= 0 ? '上下文已用百分之' + this.client.contextPercent : '上下文用量暂不可用').onClick(() => { this.open = true; })
-    }.width(this.client.hasAgentMode ? 72 : 36).height(44).bindSheet(this.open, this.Details, { height: SheetSize.FIT_CONTENT, showClose: false, dragBar: true, backgroundColor: AppTheme.surface, onDisappear: () => { this.open = false; } })
+      if (this.client.contextPercent >= 0) {
+        Button() {
+          Progress({ value: this.client.contextPercent, total: 100, type: ProgressType.Ring }).width(18).height(18).color(AppTheme.secondary).backgroundColor(AppTheme.subtle).style({ strokeWidth: 2 })
+        }.id('context-usage').type(ButtonType.Normal).width(36).height(44).padding(0).backgroundColor(Color.Transparent).accessibilityText('上下文已用百分之' + this.client.contextPercent).onClick(() => { this.open = true; })
+      }
+    }.width((this.client.hasAgentMode ? 36 : 0) + (this.client.contextPercent >= 0 ? 36 : 0)).height(44).bindSheet(this.open, this.Details, { height: SheetSize.FIT_CONTENT, showClose: false, dragBar: true, backgroundColor: AppTheme.surface, onDisappear: () => { this.open = false; } })
   }
 }
