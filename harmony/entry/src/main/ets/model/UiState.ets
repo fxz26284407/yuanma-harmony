@@ -192,6 +192,7 @@ export abstract class UiState {
   abstract refresh(): Promise<void>;
   abstract loadOlder(): Promise<void>;
   abstract readMessage(message: MessageView): Promise<void>;
+  abstract loadAssistantText(message: MessageView): Promise<void>;
   abstract readNextChunk(): Promise<void>;
   abstract pauseConnection(): void;
   abstract disconnect(): void;

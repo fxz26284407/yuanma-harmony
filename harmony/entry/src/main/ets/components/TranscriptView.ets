@@ -93,6 +93,7 @@ export struct TranscriptView {
                 if (message.images.length > 0) { this.Images(message) }
                 if (message.hasMore) { this.ReadLink(message) }
               }.padding(message.role === 'user' && !(this.client.selectedAgent === 'antigravity' && message.references.length > 0 && !message.text && !message.images.length) ? 12 : 0).width(message.role === 'user' ? (message.images.length > 0 ? '90%' : LayoutPolicy.wrapContent) : '100%').constraintSize({ maxWidth: message.role === 'user' ? '90%' : '100%' }).borderRadius(20).alignItems(HorizontalAlign.Start).backgroundColor(message.role === 'user' && !(this.client.selectedAgent === 'antigravity' && message.references.length > 0 && !message.text && !message.images.length) ? AppTheme.bubble : Color.Transparent)
+                .onVisibleAreaChange([0], (visible: boolean) => { if (visible && message.role === 'assistant' && message.hasMore) { this.client.loadAssistantText(message).catch(() => {}); } })
             }.id('message-' + message.id).width('100%').justifyContent(FlexAlign.End)
           }, (m: MessageView) => m.id)
         }

@@ -13,7 +13,11 @@ function compatibleFlowchart(source: string): string {
         // Quoted labels and cylinder/parallelogram shapes already have their own syntax.
         if (!id || /^["`(/\\]/.test(label.trimStart()) || !/[()]|\\n/.test(label)) { return node; }
         return id + '["' + label.replace(/"/g, '#quot;').replace(/\\n/g, '<br/>') + '"]';
-      });
+      }).replace(/"(?:[^"\\]|\\.)*"|([<ox]?[-.=]+[>ox]?[ \t]*)\|([^|"\r\n]*)\|/g,
+        (edge: string, arrow: string = '', label: string = ''): string => {
+          if (!arrow || label.trimStart().startsWith('`') || !/[()]|\\n/.test(label)) { return edge; }
+          return arrow + '|"' + label.replace(/\\n/g, '<br/>') + '"|';
+        });
   }).join('\n');
 }
 

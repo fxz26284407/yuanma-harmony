@@ -137,6 +137,9 @@ export class MobileSession extends UiState {
   private generation: number = 0;
   private reconnectTask?: Promise<void>;
   private refreshTask?: Promise<void>;
+  private assistantTextScope: string = '';
+  private assistantTexts: Map<string, string> = new Map<string, string>();
+  private assistantTextLoading: Set<string> = new Set<string>();
   private retryTimer: number = -1;
   private retryDelay: number = 500;
   private foreground: boolean = true;
@@ -356,7 +359,7 @@ export class MobileSession extends UiState {
   }
   private uploadLimit(value: number | undefined, maximum: number, fallback: number): number { return value !== undefined && Number.isSafeInteger(value) && value > 0 ? Math.min(value, maximum) : fallback; }
   private checkGeneration(generation: number): void { if (generation !== this.generation) { const error = new Error('已取消旧连接操作'); error.name = 'LinkError'; throw error; } }
-  private clearConnection(): void { this.activityTitle = ''; this.runtime = {}; this.commandFeedback = ''; this.models = []; this.backendKind = ''; this.uploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 }; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
+  private clearConnection(): void { this.assistantTextScope = ''; this.assistantTexts.clear(); this.assistantTextLoading.clear(); this.activityTitle = ''; this.runtime = {}; this.commandFeedback = ''; this.models = []; this.backendKind = ''; this.uploadLimits = { fileBytes: 8388608, imageBytes: 8388608, messageBytes: 8388608, maxAttachments: 4, chunkBytes: 131072 }; this.capabilities = { modelSettings: false, permissions: false, suggestions: false, steer: false, images: false, extensions: false, changes: false }; this.encrypted = false; this.authenticated = false; this.token = ''; this.approvals = []; this.extensionGeneration++; this.extensionItems = []; this.extensionTotal = 0; this.extensionLoading = false; this.extensionSyncStatus = ''; }
   private connectionLost(reason: string = 'transport'): void {
     console.info('CM_CONNECTION reset reason=' + reason);
     this.generation++; this.rpc.close(); this.clearConnection();
@@ -1007,6 +1010,7 @@ export class MobileSession extends UiState {
     this.approvals = [...snapshot.approvals, ...this.asyncQuestions.filter((q: ApprovalItem) => !q.answered && q.canAccept)];
     this.queueMessages = snapshot.messages.filter((m: SnapshotMessage) => ['queued', 'dispatching', 'nativeQueued', 'unknown'].includes(m.state));
     if (snapshot.backend.permissions) { this.permissionScope = snapshot.backend.permissions.scope || 'conversation'; this.permissionOptions = snapshot.backend.permissions.options || []; this.permissionMode = snapshot.backend.permissions.mode; this.permissionMobileControl = snapshot.backend.permissions.mobileControl; this.fullAccessConfirmed = this.permissionConfirmation(this.permissionMode) && this.permissionMobileControl; }
+    const endedTurn: string = this.currentTurnId && this.currentTurnId !== snapshot.backend.turnId ? this.currentTurnId : '';
     this.currentTurnId = snapshot.backend.turnId || ''; this.waiting = snapshot.backend.waiting;
     this.runtimeStatusKnown = snapshot.backend.statusKnown !== false;
     this.activityTitle = snapshot.backend.active ? snapshot.activityTitle || (snapshot.history.activityTurnId === this.currentTurnId ? snapshot.history.activityTitle || '' : '') : '';
@@ -1047,9 +1051,40 @@ export class MobileSession extends UiState {
         if (existing >= 0) { result[existing] = view; } else { result.push(view); }
       }
     });
-    if (this.selectedProjectId === projectAtStart && this.selectedThreadId === threadAtStart) { this.messages = result; this.updateSuggestion(snapshot); await this.recoverAgentCommand(snapshot); }
+    if (this.selectedProjectId === projectAtStart && this.selectedThreadId === threadAtStart) {
+      this.messages = result;
+      if (endedTurn) { result.filter((m: MessageView) => m.turnId === endedTurn && m.role === 'assistant' && m.hasMore).forEach((m: MessageView) => { this.loadAssistantText(m).catch(() => {}); }); }
+      this.updateSuggestion(snapshot); await this.recoverAgentCommand(snapshot);
+    }
+  }
+  async loadAssistantText(message: MessageView): Promise<void> {
+    if (!['codex', 'deepseek'].includes(this.selectedAgent) || message.role !== 'assistant' || !message.hasMore || !message.itemId || !this.authenticated || message.turnId === this.currentTurnId) { return; }
+    const scope: string = this.assistantTextScope; const generation: number = this.generation;
+    const project: string = this.selectedProjectId; const thread: string = this.selectedThreadId;
+    const key: string = JSON.stringify([message.turnId, message.itemId]);
+    if (this.assistantTexts.has(key) || this.assistantTextLoading.has(key)) { return; }
+    this.assistantTextLoading.add(key);
+    try {
+      let text: string = ''; let offset: number = 0; let total: number = -1;
+      while (true) {
+        const path: string = '/v1/threads/' + thread + '/history-item?projectId=' + encodeURIComponent(project) + '&turnId=' + encodeURIComponent(message.turnId) + '&itemId=' + encodeURIComponent(message.itemId) + '&offset=' + offset;
+        const chunk = await this.rpc.request<HistoryChunk>('GET', path, undefined, this.authorization());
+        if (generation !== this.generation || scope !== this.assistantTextScope || project !== this.selectedProjectId || thread !== this.selectedThreadId || message.turnId === this.currentTurnId) { return; }
+        if (typeof chunk.text !== 'string' || !Number.isSafeInteger(chunk.totalChars) || chunk.totalChars < 0 || (total >= 0 && total !== chunk.totalChars)) { throw new Error('正文正在更新，请稍后重试'); }
+        total = chunk.totalChars; text += chunk.text;
+        if (chunk.nextOffset === undefined || chunk.nextOffset === null) { if (text.length !== total) { throw new Error('正文尚未加载完整'); } break; }
+        if (!Number.isSafeInteger(chunk.nextOffset) || chunk.nextOffset <= offset || chunk.nextOffset !== text.length || chunk.nextOffset >= total) { throw new Error('正文分页状态无效'); }
+        offset = chunk.nextOffset;
+      }
+      if (!text.startsWith(message.text)) { throw new Error('正文已变化，请刷新后重试'); }
+      this.assistantTexts.set(key, text);
+      this.messages = this.messages.map((m: MessageView) => { if (m.role === 'assistant' && m.turnId === message.turnId && m.itemId === message.itemId) { m.text = text; m.hasMore = false; } return m; });
+    } finally { if (scope === this.assistantTextScope && generation === this.generation) { this.assistantTextLoading.delete(key); } }
   }
   private historyMessages(history: HistoryPage): MessageView[] {
+    // ponytail: cache only the current conversation; reuse the bounded history-item API.
+    const scope: string = JSON.stringify([this.selectedAgent, this.fingerprint, this.selectedProjectId, this.selectedThreadId]);
+    if (scope !== this.assistantTextScope) { this.assistantTextScope = scope; this.assistantTexts.clear(); this.assistantTextLoading.clear(); }
     const result: MessageView[] = [];
     history.data.slice().reverse().forEach((turn: HistoryTurn) => {
       turn.items.forEach((item: HistoryItem) => {
@@ -1061,6 +1096,11 @@ export class MobileSession extends UiState {
         const view = new MessageView(item.clientId || item.id, role, text);
         view.question = item.asyncQuestion ? this.asyncQuestions.find((q: ApprovalItem) => q.id === item.asyncQuestion?.id) || item.asyncQuestion : undefined;
         view.references = item.references || []; view.images = item.images || []; view.itemId = item.readId || item.id; view.turnId = turn.id; view.hasMore = item.truncated === true;
+        const key: string = JSON.stringify([view.turnId, view.itemId]); const full: string | undefined = this.assistantTexts.get(key);
+        if (role === 'assistant' && full !== undefined && this.currentTurnId !== turn.id) {
+          if (full.startsWith(text) && (item.totalChars === undefined || full.length === item.totalChars)) { view.text = full; view.hasMore = false; }
+          else { this.assistantTexts.delete(key); }
+        }
         view.execution = item.execution; view.groupKey = item.groupKey || ''; if (item.execution) { view.status = item.execution.status; }
         result.push(view);
       });
