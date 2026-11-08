@@ -19,21 +19,21 @@ export struct TranscriptView {
   @Prop reduceMotion: boolean = false;
   @Prop messages: MessageView[] = [];
   @Prop @Watch('resetExpansion') threadId: string = '';
-  private resetExpansion(): void { this.expanded = ''; this.onChatChanged(); }
-  aboutToAppear(): void { this.expanded = ''; this.onChatChanged(); }
+  private resetExpansion(): void { this.expanded = ''; this.detail = ''; this.onChatChanged(); }
+  aboutToAppear(): void { this.expanded = ''; this.detail = ''; this.onChatChanged(); }
   onChatChanged: () => void = () => {};
   onRead: (message: MessageView) => void = () => {};
   onChanges: (turnId: string) => void = () => {};
   @State private expanded: string = '';
-  private summary(group: TranscriptGroup): string {
-    const first = group.items[0]; const info = first.execution;
+  @State private detail: string = '';
+  private latest(group: TranscriptGroup): MessageView { return group.items[group.items.length - 1]; }
+  private summary(message: MessageView): string {
+    const info = message.execution;
     if (!info) { return '执行记录'; }
-    if (info.kind === 'image' && group.items.length > 1) { return (first.status === 'running' ? '正在查看 ' : '已查看 ') + group.items.length + ' 张图片'; }
-    if (group.items.length > 1) { return info.label + '（' + group.items.length + ' 项）'; }
     return info.label + (info.durationMs !== undefined ? ' · ' + (info.durationMs < 1000 ? info.durationMs + 'ms' : (info.durationMs / 1000).toFixed(1) + 's') : '');
   }
   private icon(group: TranscriptGroup): Resource {
-    const kind = group.items[0].execution?.kind;
+    const kind = this.latest(group).execution?.kind;
     if (kind === 'image') { return $r('sys.symbol.ohos_photo'); }
     if (kind === 'read' || kind === 'write' || kind === 'edit' || kind === 'fileChange') { return $r('sys.symbol.doc_text'); }
     if (kind === 'list') { return $r('sys.symbol.folder'); }
@@ -44,7 +44,17 @@ export struct TranscriptView {
   }
   private groups(): TranscriptGroup[] {
     const groups: TranscriptGroup[] = [];
-    this.messages.filter((m: MessageView) => this.client.showReasoning || m.execution?.kind !== 'reasoning').forEach((m: MessageView) => { const prior = groups.length > 0 ? groups[groups.length - 1] : undefined; if (m.role === 'tool' && m.execution?.kind !== 'compaction' && prior?.tool && prior.items[0].execution?.kind === m.execution?.kind && prior.items[0].status === m.status && prior.items[0].groupKey === m.groupKey) { prior.items.push(m); } else { groups.push(new TranscriptGroup(m)); } }); return groups;
+    for (const message of this.messages) {
+      if (!this.client.showReasoning && message.execution?.kind === 'reasoning') { continue; }
+      const prior = groups[groups.length - 1];
+      if (message.role === 'tool' && prior?.tool && prior.items[0].turnId === message.turnId &&
+        message.execution?.kind !== 'compaction' && prior.items[0].execution?.kind !== 'compaction') {
+        prior.items.push(message);
+      } else {
+        groups.push(new TranscriptGroup(message));
+      }
+    }
+    return groups;
   }
   @Builder
   private Images(message: MessageView) {
@@ -61,21 +71,38 @@ export struct TranscriptView {
         if (group.tool && group.items[0].execution?.kind === 'compaction') {
           Row({ space: 8 }) {
             SymbolGlyph($r('sys.symbol.doc_text')).fontSize(16).fontColor([AppTheme.secondary])
-            ExecutionLabel({ label: this.summary(group), running: group.items[0].status === 'running', failed: group.items[0].status === 'failed', reduceMotion: this.reduceMotion }).layoutWeight(1)
-          }.id('compaction-' + group.id).height(28).width('100%').accessibilityText(this.summary(group))
+            ExecutionLabel({ label: this.summary(this.latest(group)), running: this.latest(group).status === 'running', failed: this.latest(group).status === 'failed', reduceMotion: this.reduceMotion }).layoutWeight(1)
+          }.id('compaction-' + group.id).height(28).width('100%').accessibilityText(this.summary(this.latest(group)))
         } else if (group.tool) {
           Column({ space: 6 }) {
             Button() {
               Row({ space: 8 }) {
                 SymbolGlyph(this.icon(group)).fontSize(16).fontColor([AppTheme.secondary])
-                ExecutionLabel({ label: this.summary(group), running: group.items[0].status === 'running', failed: group.items[0].status === 'failed', reduceMotion: this.reduceMotion }).layoutWeight(1)
+                ExecutionLabel({ label: this.summary(this.latest(group)), running: this.latest(group).status === 'running', failed: this.latest(group).status === 'failed', reduceMotion: this.reduceMotion }).layoutWeight(1)
+                if (group.items.length > 1) {
+                  Text('+' + group.items.length).fontSize(11).fontColor(AppTheme.secondary)
+                    .padding({ left: 6, right: 6 }).backgroundColor(AppTheme.contentSurface).borderRadius(8)
+                }
                 SymbolGlyph(this.expanded === group.id ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right')).fontSize(12).fontColor([AppTheme.secondary])
               }.width('100%').height(28)
-            }.id('execution-' + group.id).type(ButtonType.Normal).height(28).padding(0).width('100%').backgroundColor(Color.Transparent).accessibilityText(this.summary(group)).accessibilityDescription(this.expanded === group.id ? '点按收起执行内容' : '点按展开执行内容').onClick(() => { this.expanded = this.expanded === group.id ? '' : group.id; })
+            }.id('execution-' + group.id).type(ButtonType.Normal).height(28).padding(0).width('100%').backgroundColor(Color.Transparent).accessibilityText(this.summary(this.latest(group))).accessibilityDescription(this.expanded === group.id ? '点按收起执行内容' : '点按展开执行内容').onClick(() => { this.expanded = this.expanded === group.id ? '' : group.id; this.detail = ''; })
             if (this.expanded === group.id) {
               ForEach(group.items, (message: MessageView) => {
+                Column({ space: 4 }) {
+                  if (group.items.length > 1) {
+                    Button() {
+                      Row({ space: 6 }) {
+                        ExecutionLabel({ label: this.summary(message), running: message.status === 'running', failed: message.status === 'failed', reduceMotion: this.reduceMotion }).layoutWeight(1)
+                        SymbolGlyph(this.detail === message.id ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right')).fontSize(12).fontColor([AppTheme.secondary])
+                      }.width('100%')
+                    }.width('100%').height(32).backgroundColor(Color.Transparent)
+                      .onClick(() => { this.detail = this.detail === message.id ? '' : message.id; })
+                  }
+                  if (group.items.length === 1 || this.detail === message.id) {
                 Column({ space: 6 }) { if (message.execution?.kind === 'fileChange') { Button('查看代码变更').id('view-item-changes-' + message.id).height(44).fontSize(12).fontColor(AppTheme.accent).backgroundColor(Color.Transparent).onClick(() => { this.onChanges(message.turnId); }) } else if (message.text && message.execution?.kind === 'reasoning') { MarkdownBody({ text: message.text }) } else if (message.text) { Text(message.text).fontSize(12).lineHeight(18).fontFamily('monospace').fontColor(AppTheme.secondary).copyOption(CopyOptions.LocalDevice) } if (message.images.length > 0) { this.Images(message) } if (message.hasMore && message.execution?.kind !== 'fileChange') { this.ReadLink(message) } }.padding(message.text ? 12 : 0).width('100%').backgroundColor(message.text ? AppTheme.contentSurface : Color.Transparent).borderRadius(12).alignItems(HorizontalAlign.Start)
-              }, (m: MessageView) => m.id)
+                  }
+                }.width('100%')
+              }, (m: MessageView) => JSON.stringify(m))
             }
           }.width('100%')
         } else {
