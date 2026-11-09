@@ -69,7 +69,7 @@ export interface InterruptBody { projectId: string; threadId: string; turnId: st
 export interface InterruptResult { requested: boolean; turnId: string; }
 export interface CancelBody { type: string; clientOperationId: string; submissionId: string; }
 export interface NavigationThread extends ThreadItem { projectId: string; pinned?: boolean; sectionId?: string; sectionName?: string; }
-export interface NavigationProject extends ProjectItem { workspaceId?: string; threads: NavigationThread[]; }
+export interface NavigationProject extends ProjectItem { workspaceId?: string; nextCursor?: string; loading?: boolean; threads: NavigationThread[]; }
 export interface NavigationSection { workspaceId?: string; scopeProjectId?: string; capability?: string; id: string; name: string; projects: NavigationProject[]; threads?: NavigationThread[]; }
 export interface DesktopSyncStatus { pending: number; appliedAt: number; error: string; }
 export interface NavigationData { scopeProjects?: ProjectItem[]; desktopSync?: DesktopSyncStatus; newProjectCapability?: string; pinned?: NavigationThread[]; sections: NavigationSection[]; projects: NavigationProject[]; recent: NavigationThread[]; recentThreads?: NavigationThread[]; }

@@ -180,6 +180,7 @@ export abstract class UiState {
   abstract steer(turnId: string, submissionId?: string): Promise<void>;
   abstract manageThread(thread: NavigationThread, request: ThreadManagementRequest): Promise<void>;
   abstract manageProject(project: ProjectItem, request: ProjectManagementRequest): Promise<void>;
+  abstract loadNavigationProject(project: NavigationProject): Promise<void>;
   abstract refreshNavigation(): Promise<void>;
   abstract openNavigationThread(thread: NavigationThread): Promise<void>;
   abstract loadModelSettings(): Promise<void>;

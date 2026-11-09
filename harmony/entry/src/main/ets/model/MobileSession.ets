@@ -586,6 +586,21 @@ export class MobileSession extends UiState {
     } else if (selected) { this.selectedProjectId = selected.projectId; this.selectedThreadName = selected.name; }
     else if (!this.projects.some((p: ProjectItem) => p.id === this.selectedProjectId)) { this.selectedProjectId = ''; this.selectedThreadId = ''; this.selectedThreadName = ''; }
   }
+  async loadNavigationProject(project: NavigationProject): Promise<void> {
+    if (!project.nextCursor || project.loading || !this.authenticated) { return; }
+    const navigation = this.navigation; const generation: number = this.generation;
+    project.loading = true;
+    try {
+      const page = await this.rpc.request<ThreadPage>('GET', '/v1/threads?projectId=' + encodeURIComponent(project.id) + '&cursor=' + encodeURIComponent(project.nextCursor), undefined, this.authorization());
+      if (generation !== this.generation || navigation !== this.navigation) { return; }
+      const items: NavigationThread[] = page.data.map((thread: ThreadItem): NavigationThread => {
+        return { id: thread.id, name: thread.name, status: thread.status, projectId: project.id };
+      });
+      project.threads = [...project.threads, ...items.filter((thread: NavigationThread) => !project.threads.some((old: NavigationThread) => old.id === thread.id))];
+      project.nextCursor = page.nextCursor || '';
+      if (navigation) { this.navigation = { sections: navigation.sections, projects: navigation.projects, recent: navigation.recent, pinned: navigation.pinned, recentThreads: navigation.recentThreads, scopeProjects: navigation.scopeProjects, desktopSync: navigation.desktopSync, newProjectCapability: navigation.newProjectCapability }; }
+    } finally { project.loading = false; }
+  }
   async refreshNavigation(): Promise<void> {
     if (!this.authenticated || this.busy) { return; } this.busy = true;
     try { const generation: number = this.generation; const navigation = await this.rpc.request<NavigationData>('GET', '/v1/navigation', undefined, this.authorization()); this.checkGeneration(generation); this.applyNavigation(navigation); } finally { this.busy = false; }

@@ -133,7 +133,12 @@ export struct NavigationDrawer {
         .enabled(this.client.authenticated).onClick(() => { if (this.contextProjectId !== project.id) { this.toggle(project.id, this.projectClosed(project)); } })
       if (!this.projectClosed(project)) {
         ForEach(project.threads.filter((t: NavigationThread) => t.name.toLowerCase().includes(this.search.toLowerCase())), (t: NavigationThread) => { this.ThreadRow(t) }, (t: NavigationThread) => this.threadKey(t))
-        if (project.threads.length === 0) { Text(project.capability === 'none' ? '在电脑上授权后查看会话' : '暂无会话').id('project-empty-' + project.id).fontSize(12).fontColor(AppTheme.secondary).padding({ left: 42, top: 8, bottom: 8 }).width('100%') }
+        if (project.nextCursor) {
+          Button(project.loading ? '正在加载…' : '加载更多').height(40).width('100%').fontSize(12).fontColor(AppTheme.secondary).backgroundColor(Color.Transparent)
+            .onClick(() => { this.client.loadNavigationProject(project).catch((e: Error) => { this.error = this.client.userFacingError(e); }); })
+            .onVisibleAreaChange([0], (visible: boolean) => { if (visible && !this.error) { this.client.loadNavigationProject(project).catch((e: Error) => { this.error = this.client.userFacingError(e); }); } })
+        }
+        if (project.threads.length === 0 && !project.nextCursor) { Text(project.capability === 'none' ? '在电脑上授权后查看会话' : '暂无会话').id('project-empty-' + project.id).fontSize(12).fontColor(AppTheme.secondary).padding({ left: 42, top: 8, bottom: 8 }).width('100%') }
       }
     }.width('100%').alignItems(HorizontalAlign.Start)
   }
@@ -190,9 +195,11 @@ export struct NavigationDrawer {
             }.padding({ left: 12 }).width('100%')
             ForEach(this.client.navigation.projects, (p: NavigationProject) => { this.ProjectRow(p) }, (p: NavigationProject) => this.projectKey(p))
             }
+            if (this.client.navigation.recent.length > 0) {
             Divider().color(AppTheme.subtle).margin({ top: 4, bottom: 4 })
             Text('最近会话').fontSize(12).fontColor(AppTheme.secondary).padding({ left: 12 }).width('100%')
             ForEach(this.client.navigation.recent.filter((t: NavigationThread) => t.name.toLowerCase().includes(this.search.toLowerCase())), (t: NavigationThread) => { this.ThreadRow(t, false) }, (t: NavigationThread) => this.threadKey(t))
+            }
           } else { Text(this.client.authenticated ? '正在同步电脑导航…' : '连接电脑后同步会话').fontSize(14).fontColor(AppTheme.secondary) }
         }.width('100%').alignItems(HorizontalAlign.Start)
       }.layoutWeight(1).width('100%').scrollBar(BarState.Off).align(Alignment.TopStart).initialOffset({ xOffset: 0, yOffset: 0 })
